@@ -1,4 +1,6 @@
-﻿using System.Diagnostics;
+﻿using System;
+using System.Collections.Immutable;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 
@@ -21,57 +23,6 @@ internal struct SourceBuilder
 
   public readonly string Source => _sb.ToString();
 
-  public void AddTabs(int tabs)
-  {
-    Debug.Assert(tabs >= 0);
-    _tabs += tabs;
-  }
-
-  public void RemoveTabs(int tabs)
-  {
-    Debug.Assert(tabs >= 0);
-    _tabs -= tabs;
-  }
-
-  public void OpenScope(string text, int tabs = 1)
-  {
-    Debug.Assert(tabs >= 0);
-
-    AppendLine(text);
-
-    _tabs += tabs;
-    AppendLine("{");
-  }
-
-  public void CloseScope(string text, int tabs = 1)
-  {
-    Debug.Assert(tabs >= 0);
-
-    _tabs -= tabs;
-    AppendLine(text);
-
-    AppendLine("}");
-  }
-
-  public void OpenScope(int tabs = 1)
-  {
-    Debug.Assert(tabs >= 0);
-
-    AppendLine();
-
-    _tabs += tabs;
-    AppendLine("{");
-  }
-
-  public void CloseScope(int tabs = 1)
-  {
-    Debug.Assert(tabs >= 0);
-
-    _tabs -= tabs;
-
-    AppendLine("}");
-  }
-
   public void Append(string text)
   {
     _sb.Append(text);
@@ -82,15 +33,37 @@ internal struct SourceBuilder
     _sb.Append(c);
   }
 
-  public void AppendLine()
+  public void AppendLine(int tabs = 0)
   {
+    _tabs += tabs;
+    Debug.Assert(_tabs >= 0);
+
     _sb.AppendLine();
     _sb.Append(s_indentations[_tabs]);
   }
 
-  public void AppendLine(string text)
+  public void AppendLine(string text, int tabs = 0)
   {
+    _tabs += tabs;
+    Debug.Assert(_tabs >= 0);
+
     _sb.AppendLine(text);
     _sb.Append(s_indentations[_tabs]);
+  }
+
+  public void AppendJoin<T>(string separator, ImmutableArray<T> array, Action<StringBuilder, T> append)
+  {
+    ImmutableArray<T>.Enumerator enumerator = array.GetEnumerator();
+
+    if (!enumerator.MoveNext())
+      return;
+
+    append(_sb, enumerator.Current);
+
+    while (enumerator.MoveNext())
+    {
+      _sb.Append(separator);
+      append(_sb, enumerator.Current);
+    }
   }
 }

@@ -21,10 +21,13 @@ internal class FluentMockGenerator : IIncrementalGenerator
 
   private void Execute(SourceProductionContext context, ImmutableArray<ITypeSymbol> types)
   {
+    context.AddSource("IBuilder", SourceGenerator.Instance.GenerateIBuilder());
+    context.AddSource("ListBuilder", SourceGenerator.Instance.GenerateListBuilder());
+
     foreach (ITypeSymbol type in types)
     {
       string hint = type.ToDisplayString();
-      string source = SourceGenerator.Instance.GenerateSource(in types, type);
+      string source = SourceGenerator.Instance.GenerateObjectBuilder(in types, type);
       context.AddSource(hint, source);
     }
   }
