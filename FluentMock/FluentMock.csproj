@@ -1,0 +1,18 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <WarningsAsErrors>nullable</WarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FluentMock.Generator\FluentMock.Generator.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  
+  <ItemGroup>
+    <None Include="../FluentMock.Generator/bin/$(Configuration)/netstandard2.0/FluentMock.Generator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+  </ItemGroup>
+
+</Project>
