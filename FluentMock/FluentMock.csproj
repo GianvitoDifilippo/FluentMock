@@ -5,6 +5,7 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <WarningsAsErrors>nullable</WarningsAsErrors>
+    <Authors>Gianvito Difilippo</Authors>
     <Company />
     <Summary>Generates fluent builders for mocking interfaces.</Summary>
     <Description>Generates fluent builders for mocking interfaces.</Description>
