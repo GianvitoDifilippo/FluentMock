@@ -5,6 +5,14 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <WarningsAsErrors>nullable</WarningsAsErrors>
+    <Company />
+    <Summary>Generates fluent builders for mocking interfaces.</Summary>
+    <Description>Generates fluent builders for mocking interfaces.</Description>
+    <PackageProjectUrl>https://github.com/GianvitoDifilippo/FluentMock</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/GianvitoDifilippo/FluentMock</RepositoryUrl>
+    <PackageTags>source;generators;mock;moq;</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
   </PropertyGroup>
 
   <ItemGroup>
