@@ -23,5 +23,9 @@
   <ItemGroup>
     <None Include="../FluentMock.Generator/bin/$(Configuration)/netstandard2.0/FluentMock.Generator.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
   </ItemGroup>
+  
+  <ItemGroup>
+    <PackageReference Include="FluentAssertions" Version="6.8.0" />
+  </ItemGroup>
 
 </Project>

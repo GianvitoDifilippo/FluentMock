@@ -2,7 +2,7 @@
 
 namespace FluentMock;
 
-[AttributeUsage(AttributeTargets.Assembly)]
+[AttributeUsage(AttributeTargets.Assembly | AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Interface, AllowMultiple = true)]
 public class GenerateFluentMockForAttribute : Attribute
 {
   public GenerateFluentMockForAttribute(Type type)
