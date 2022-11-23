@@ -139,7 +139,9 @@ internal class SourceGenerator
     sourceBuilder.AppendLine("{", 1);
 
     bool appendLineForDelegates = false;
-    foreach (ISymbol member in type.GetMembers())
+    IEnumerable<ISymbol> allMembers = type.GetAllMembers();
+
+    foreach (ISymbol member in allMembers)
     {
       if (member is IMethodSymbol method && method.MethodKind is MethodKind.Ordinary && method.RefKind is RefKind.None)
       {
@@ -165,7 +167,7 @@ internal class SourceGenerator
     GenerateInstanceBuildMethod(ref sourceBuilder, info);
     sourceBuilder.AppendLine();
 
-    foreach (ISymbol member in type.GetMembers())
+    foreach (ISymbol member in allMembers)
     {
       if (member is IPropertySymbol property)
       {

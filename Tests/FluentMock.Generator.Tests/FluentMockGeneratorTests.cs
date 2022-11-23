@@ -323,6 +323,57 @@ public class FluentMockGeneratorTests
         method.Parameters[0].Type.ToDisplayString(null) == "System.Action<FluentMock.ListBuilder<ClassLibrary.IMyOtherInterface, ClassLibrary.FluentMock.MyOtherInterfaceBuilder>>");
   }
 
+  [Fact]
+  public void ShouldGenerateForInheritedProperties()
+  {
+    // Arrange
+    string source = """
+      using FluentMock;
+
+      namespace ClassLibrary
+      {
+        public interface IMyInterfaceBase
+        {
+          string Name { get; }
+        }
+
+        public interface IMyInterface : IMyInterfaceBase
+        {
+        }
+      }
+
+      namespace Test
+      {
+        [GenerateFluentMockFor(typeof(ClassLibrary.IMyInterface))]
+        class Config { }
+      }
+      """;
+
+
+    // Act
+    Compilation compilation = CompileWithGenerator(source);
+
+    // Assert
+    compilation.GetDiagnostics().Should().NotContain(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+
+    INamedTypeSymbol type = compilation.GetTypeByMetadataName("ClassLibrary.IMyInterface")!;
+    INamedTypeSymbol builderType = compilation.GetTypeByMetadataName("ClassLibrary.FluentMock.MyInterfaceBuilder")!;
+
+    builderType.ShouldMatchBuilderSpecification(type);
+
+    IEnumerable<IMethodSymbol> instanceMethods = builderType
+      .GetMembers()
+      .OfType<IMethodSymbol>()
+      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build");
+
+    instanceMethods.Should().HaveCount(1)
+      .And.ContainSingle(method =>
+        method.Name == "SetName" &&
+        method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
+        method.Parameters.Length == 1 &&
+        method.Parameters[0].Type.ToDisplayString(null) == "string");
+  }
+
   private static Compilation CompileWithGenerator(string source)
   {
     SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(source);
