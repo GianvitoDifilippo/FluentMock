@@ -37,14 +37,12 @@ internal class SourceGenerator
       namespace FluentMock
       {
         internal abstract class __ListBuilderBase<T, TListBuilder>
-          where TListBuilder : __ListBuilderBase<T, TListBuilder>
+          where TListBuilder : __ListBuilderBase<T, TListBuilder>, new()
         {
-          private readonly global::Moq.MockBehavior _behavior;
           private readonly global::System.Collections.Generic.List<T> _list;
 
-          protected __ListBuilderBase(global::Moq.MockBehavior behavior)
+          protected __ListBuilderBase()
           {
-            _behavior = behavior;
             _list = new();
           }
 
@@ -58,25 +56,19 @@ internal class SourceGenerator
             return This;
           }
 
-          public static global::System.Collections.Generic.IReadOnlyList<T> Build(global::Moq.MockBehavior behavior, global::System.Action<TListBuilder> buildAction)
-          {
-            TListBuilder builder = (TListBuilder)global::System.Activator.CreateInstance(typeof(TListBuilder), new object[] { behavior });
-            buildAction(builder);
-            return builder.Build();
-          }
-
           public static global::System.Collections.Generic.IReadOnlyList<T> Build(global::System.Action<TListBuilder> buildAction)
           {
-            return Build(global::Moq.MockBehavior.Loose, buildAction);
+            TListBuilder builder = new TListBuilder();
+            buildAction(builder);
+            return builder.Build();
           }
         }
 
         internal abstract class __ListBuilderBase<T, TBuilder, TListBuilder> : __ListBuilderBase<T, TListBuilder>
           where TBuilder : IBuilder<T>
-          where TListBuilder : __ListBuilderBase<T, TBuilder, TListBuilder>
+          where TListBuilder : __ListBuilderBase<T, TBuilder, TListBuilder>, new()
         {
-          protected __ListBuilderBase(global::Moq.MockBehavior behavior)
-            : base(behavior)
+          protected __ListBuilderBase()
           {
           }
 
@@ -96,12 +88,6 @@ internal class SourceGenerator
         internal sealed class ListBuilder<T> : __ListBuilderBase<T, ListBuilder<T>>
         {
           public ListBuilder()
-            : base(global::Moq.MockBehavior.Loose)
-          {
-          }
-
-          public ListBuilder(global::Moq.MockBehavior behavior)
-            : base(behavior)
           {
           }
 
@@ -112,12 +98,6 @@ internal class SourceGenerator
           where TBuilder : IBuilder<T>
         {
           public ListBuilder()
-            : base(global::Moq.MockBehavior.Loose)
-          {
-          }
-
-          public ListBuilder(global::Moq.MockBehavior behavior)
-            : base(behavior)
           {
           }
 
@@ -143,11 +123,24 @@ internal class SourceGenerator
 
     foreach (ISymbol member in allMembers)
     {
-      if (member is IMethodSymbol method && method.MethodKind is MethodKind.Ordinary && method.RefKind is RefKind.None)
+      if (member is not IMethodSymbol method || method.MethodKind is not MethodKind.Ordinary || method.RefKind is not RefKind.None)
+        continue;
+
+      bool hasRefStructParams = false;
+      foreach (IParameterSymbol parameter in method.Parameters)
       {
-        GenerateDelegate(ref sourceBuilder, (IMethodSymbol)member);
-        appendLineForDelegates = true;
+        if (parameter.Type.IsRefLikeType)
+        {
+          hasRefStructParams = true;
+          break;
+        }
       }
+
+      if (hasRefStructParams)
+        continue;
+
+      GenerateDelegate(ref sourceBuilder, (IMethodSymbol)member);
+      appendLineForDelegates = true;
     }
     if (appendLineForDelegates)
     {
@@ -164,7 +157,11 @@ internal class SourceGenerator
     sourceBuilder.AppendLine();
     GenerateConstructor(ref sourceBuilder, info);
     sourceBuilder.AppendLine();
+    GenerateMockProperty(ref sourceBuilder, info);
+    sourceBuilder.AppendLine();
     GenerateInstanceBuildMethod(ref sourceBuilder, info);
+    sourceBuilder.AppendLine();
+    GenerateSetupMethod(ref sourceBuilder, info);
     sourceBuilder.AppendLine();
 
     foreach (ISymbol member in allMembers)
@@ -176,6 +173,19 @@ internal class SourceGenerator
       }
       else if (member is IMethodSymbol method && method.MethodKind is MethodKind.Ordinary && method.RefKind is RefKind.None)
       {
+        bool hasRefStructParams = false;
+        foreach (IParameterSymbol parameter in method.Parameters)
+        {
+          if (parameter.Type.IsRefLikeType)
+          {
+            hasRefStructParams = true;
+            break;
+          }
+        }
+
+        if (hasRefStructParams)
+          continue;
+
         GenerateMethodSetter(ref sourceBuilder, (IMethodSymbol)member, info);
         sourceBuilder.AppendLine();
       }
@@ -205,8 +215,6 @@ internal class SourceGenerator
 
     return info;
   }
-
-  public delegate ref int A();
 
   private static void GenerateDelegate(ref SourceBuilder sourceBuilder, IMethodSymbol method)
   {
@@ -257,11 +265,31 @@ internal class SourceGenerator
     sourceBuilder.AppendLine("}");
   }
 
+  private static void GenerateMockProperty(ref SourceBuilder sourceBuilder, BuilderInfo info)
+  {
+    sourceBuilder.Append("public global::Moq.Mock<");
+    sourceBuilder.Append(info.TargetFullName);
+    sourceBuilder.Append("> Mock => _mock;");
+  }
+
   private static void GenerateInstanceBuildMethod(ref SourceBuilder sourceBuilder, BuilderInfo info)
   {
     sourceBuilder.Append("public ");
     sourceBuilder.Append(info.TargetFullName);
     sourceBuilder.AppendLine(" Build() => _mock.Object;");
+  }
+
+  private static void GenerateSetupMethod(ref SourceBuilder sourceBuilder, BuilderInfo info)
+  {
+    sourceBuilder.Append("public ");
+    sourceBuilder.Append(info.BuilderFullName);
+    sourceBuilder.Append(" Setup(global::System.Action<global::Moq.Mock<");
+    sourceBuilder.Append(info.TargetFullName);
+    sourceBuilder.AppendLine(">> setup)");
+    sourceBuilder.AppendLine("{", 1);
+    sourceBuilder.AppendLine("setup(_mock);");
+    sourceBuilder.AppendLine("return this;", -1);
+    sourceBuilder.AppendLine("}");
   }
 
   private void GeneratePropertySetters(ref SourceBuilder sourceBuilder, in ImmutableArray<ITypeSymbol> types, IPropertySymbol property, BuilderInfo info)
@@ -307,6 +335,22 @@ internal class SourceGenerator
       sourceBuilder.Append("(global::");
       sourceBuilder.Append(propertyBuilderInfo.BuilderFullName);
       sourceBuilder.AppendLine(".Build(buildAction));", -1);
+      sourceBuilder.AppendLine("}");
+
+      sourceBuilder.AppendLine();
+      sourceBuilder.Append("public ");
+      sourceBuilder.Append(info.BuilderName);
+      sourceBuilder.Append(" Set");
+      sourceBuilder.Append(property.Name);
+      sourceBuilder.Append("(global::Moq.MockBehavior behavior, global::System.Action<global::");
+      sourceBuilder.Append(propertyBuilderInfo.BuilderFullName);
+      sourceBuilder.AppendLine("> buildAction)");
+      sourceBuilder.AppendLine("{", 1);
+      sourceBuilder.Append("return Set");
+      sourceBuilder.Append(property.Name);
+      sourceBuilder.Append("(global::");
+      sourceBuilder.Append(propertyBuilderInfo.BuilderFullName);
+      sourceBuilder.AppendLine(".Build(behavior, buildAction));", -1);
       sourceBuilder.AppendLine("}");
 
       return;

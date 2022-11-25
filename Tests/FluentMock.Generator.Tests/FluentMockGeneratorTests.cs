@@ -48,7 +48,7 @@ public class FluentMockGeneratorTests
     IEnumerable<IMethodSymbol> instanceMethods = builderType
       .GetMembers()
       .OfType<IMethodSymbol>()
-      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build");
+      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build" && method.Name != "Setup");
 
     instanceMethods.Should().HaveCount(0);
   }
@@ -90,7 +90,7 @@ public class FluentMockGeneratorTests
     IEnumerable<IMethodSymbol> instanceMethods = builderType
       .GetMembers()
       .OfType<IMethodSymbol>()
-      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build");
+      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build" && method.Name != "Setup");
 
     instanceMethods.Should().HaveCount(1)
       .And.ContainSingle(method =>
@@ -138,7 +138,7 @@ public class FluentMockGeneratorTests
     IEnumerable<IMethodSymbol> instanceMethods = builderType
       .GetMembers()
       .OfType<IMethodSymbol>()
-      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build");
+      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build" && method.Name != "Setup");
 
     instanceMethods.Should().HaveCount(3)
       .And.ContainSingle(method =>
@@ -196,7 +196,7 @@ public class FluentMockGeneratorTests
     IEnumerable<IMethodSymbol> instanceMethods = builderType
       .GetMembers()
       .OfType<IMethodSymbol>()
-      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build");
+      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build" && method.Name != "Setup");
 
     instanceMethods.Should().HaveCount(1)
       .And.ContainSingle(method =>
@@ -246,9 +246,9 @@ public class FluentMockGeneratorTests
     IEnumerable<IMethodSymbol> instanceMethods = builderType
       .GetMembers()
       .OfType<IMethodSymbol>()
-      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build");
+      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build" && method.Name != "Setup");
 
-    instanceMethods.Should().HaveCount(2)
+    instanceMethods.Should().HaveCount(3)
       .And.ContainSingle(method =>
         method.Name == "SetOther" &&
         method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
@@ -258,7 +258,13 @@ public class FluentMockGeneratorTests
         method.Name == "SetOther" &&
         method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
         method.Parameters.Length == 1 &&
-        method.Parameters[0].Type.ToDisplayString(null) == "System.Action<ClassLibrary.FluentMock.MyOtherInterfaceBuilder>");
+        method.Parameters[0].Type.ToDisplayString(null) == "System.Action<ClassLibrary.FluentMock.MyOtherInterfaceBuilder>")
+      .And.ContainSingle(method =>
+        method.Name == "SetOther" &&
+        method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
+        method.Parameters.Length == 2 &&
+        method.Parameters[0].Type.ToDisplayString(null) == "Moq.MockBehavior" &&
+        method.Parameters[1].Type.ToDisplayString(null) == "System.Action<ClassLibrary.FluentMock.MyOtherInterfaceBuilder>");
   }
 
   [Fact]
@@ -302,7 +308,7 @@ public class FluentMockGeneratorTests
     IEnumerable<IMethodSymbol> instanceMethods = builderType
       .GetMembers()
       .OfType<IMethodSymbol>()
-      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build");
+      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build" && method.Name != "Setup");
 
     instanceMethods.Should().HaveCount(3)
       .And.ContainSingle(method =>
@@ -364,7 +370,7 @@ public class FluentMockGeneratorTests
     IEnumerable<IMethodSymbol> instanceMethods = builderType
       .GetMembers()
       .OfType<IMethodSymbol>()
-      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build");
+      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build" && method.Name != "Setup");
 
     instanceMethods.Should().HaveCount(1)
       .And.ContainSingle(method =>
@@ -387,5 +393,48 @@ public class FluentMockGeneratorTests
     driver.RunGeneratorsAndUpdateCompilation(compilation, out Compilation outputCompilation, out _);
 
     return outputCompilation;
+  }
+
+  [Fact]
+  public void ShouldNotGenerateForMethodWithRefStructParam()
+  {
+    // Arrange
+    string source = """
+      using FluentMock;
+      using System;
+
+      namespace ClassLibrary
+      {
+        public interface IMyInterface
+        {
+          void Method(ReadOnlySpan<int> span);
+        }
+      }
+
+      namespace Test
+      {
+        [GenerateFluentMockFor(typeof(ClassLibrary.IMyInterface))]
+        class Config { }
+      }
+      """;
+
+
+    // Act
+    Compilation compilation = CompileWithGenerator(source);
+
+    // Assert
+    compilation.GetDiagnostics().Should().NotContain(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+
+    INamedTypeSymbol type = compilation.GetTypeByMetadataName("ClassLibrary.IMyInterface")!;
+    INamedTypeSymbol builderType = compilation.GetTypeByMetadataName("ClassLibrary.FluentMock.MyInterfaceBuilder")!;
+
+    builderType.ShouldMatchBuilderSpecification(type);
+
+    IEnumerable<IMethodSymbol> instanceMethods = builderType
+      .GetMembers()
+      .OfType<IMethodSymbol>()
+      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build" && method.Name != "Setup");
+
+    instanceMethods.Should().HaveCount(0);
   }
 }

@@ -20,10 +20,10 @@ internal static class SymbolAssertionExtensions
       .OfType<IMethodSymbol>()
       .Where(method => method.MethodKind is MethodKind.Ordinary && method.IsStatic);
 
-    IMethodSymbol buildMethod = builderType
+    IEnumerable<IMethodSymbol> instanceMethods = builderType
       .GetMembers()
       .OfType<IMethodSymbol>()
-      .First(method => !method.IsStatic && method.Name == "Build");
+      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && (!method.Name.StartsWith("Set") || method.Name == "Setup"));
 
     constructors.Should().HaveCount(1)
       .And.ContainSingle(ctor =>
@@ -35,13 +35,24 @@ internal static class SymbolAssertionExtensions
       .And.ContainSingle(method =>
         method.Name == "Build" &&
         method.Parameters.Length == 1 &&
-        method.Parameters[0].Type.ToDisplayString(null) == $"System.Action<{builderType.ToDisplayString(null)}>")
+        method.Parameters[0].Type.ToDisplayString(null) == $"System.Action<{builderType.ToDisplayString(null)}>" &&
+        method.ReturnType.ToDisplayString(null) == type.ToDisplayString(null))
       .And.ContainSingle(method =>
         method.Name == "Build" &&
         method.Parameters.Length == 2 &&
         method.Parameters[0].Type.ToDisplayString(null) == "Moq.MockBehavior" &&
-        method.Parameters[1].Type.ToDisplayString(null) == $"System.Action<{builderType.ToDisplayString(null)}>");
+        method.Parameters[1].Type.ToDisplayString(null) == $"System.Action<{builderType.ToDisplayString(null)}>" &&
+        method.ReturnType.ToDisplayString(null) == type.ToDisplayString(null));
 
-    buildMethod.ReturnType.Should().BeEquivalentTo(type, options => options.Using(SymbolEqualityComparer.Default));
+    instanceMethods.Should().HaveCount(2)
+      .And.ContainSingle(method =>
+        method.Name == "Build" &&
+        method.Parameters.Length == 0 &&
+        method.ReturnType.ToDisplayString(null) == type.ToDisplayString(null))
+      .And.ContainSingle(method =>
+        method.Name == "Setup" &&
+        method.Parameters.Length == 1 &&
+        method.Parameters[0].Type.ToDisplayString(null) == $"System.Action<Moq.Mock<{type.ToDisplayString(null)}>>" &&
+        method.ReturnType.ToDisplayString(null) == builderType.ToDisplayString(null));
   }
 }
