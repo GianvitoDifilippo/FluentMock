@@ -89,7 +89,15 @@ internal class SourceGenerator
 
           public TListBuilder Add(global::Moq.MockBehavior behavior, global::System.Action<TBuilder> buildAction)
           {
-            TBuilder builder = (TBuilder)global::System.Activator.CreateInstance(typeof(TBuilder), new object[] { behavior });
+            TBuilder builder = (TBuilder)global::System.Activator.CreateInstance(typeof(TBuilder), new object[] { behavior })!;
+            buildAction(builder);
+            return Add(builder.Build());
+          }
+
+          public TListBuilder Add<TDerivedBuilder>(global::Moq.MockBehavior behavior, global::System.Action<TDerivedBuilder> buildAction)
+            where TDerivedBuilder : IBuilder<T>
+          {
+            TDerivedBuilder builder = (TDerivedBuilder)global::System.Activator.CreateInstance(typeof(TDerivedBuilder), new object[] { behavior })!;
             buildAction(builder);
             return Add(builder.Build());
           }
@@ -97,6 +105,12 @@ internal class SourceGenerator
           public TListBuilder Add(global::System.Action<TBuilder> buildAction)
           {
             return Add(global::FluentMock.MoqSettings.DefaultMockBehavior, buildAction);
+          }
+
+          public TListBuilder Add<TDerivedBuilder>(global::System.Action<TDerivedBuilder> buildAction)
+            where TDerivedBuilder : IBuilder<T>
+          {
+            return Add<TDerivedBuilder>(global::FluentMock.MoqSettings.DefaultMockBehavior, buildAction);
           }
         }
 
@@ -416,6 +430,9 @@ internal class SourceGenerator
 
     ITypeSymbol elementType = ((INamedTypeSymbol)propertyType).TypeArguments[0];
     string elementTypeFullName = elementType.ToDisplayString(s_typeDisplayFormat);
+    BuilderInfo? elementBuilderInfo = elementType.Kind is SymbolKind.NamedType && types.Contains(elementType)
+      ? GetInfo(elementType)
+      : null;
 
     sourceBuilder.AppendLine();
     sourceBuilder.Append("public ");
@@ -433,50 +450,31 @@ internal class SourceGenerator
     sourceBuilder.AppendLine(">);", -1);
     sourceBuilder.AppendLine("}");
 
-    bool appendDefaultListBuilderSetter = true;
-    foreach (ITypeSymbol type in types)
+    sourceBuilder.AppendLine();
+    sourceBuilder.Append("public ");
+    sourceBuilder.Append(info.BuilderName);
+    sourceBuilder.Append(" Set");
+    sourceBuilder.Append(propertyName);
+    sourceBuilder.Append("(global::System.Action<global::FluentMock.ListBuilder<");
+    sourceBuilder.Append(elementTypeFullName);
+    if (elementBuilderInfo is not null)
     {
-      if (SymbolEqualityComparer.Default.Equals(type, elementType) || type.AllInterfaces.Contains((INamedTypeSymbol)elementType))
-      {
-        appendDefaultListBuilderSetter = false;
-        BuilderInfo elementBuilderInfo = GetInfo(type);
-        AppendListBuilderSetter(ref sourceBuilder, propertyName, elementTypeFullName, info, elementBuilderInfo.BuilderFullName);
-      }
+      sourceBuilder.Append(", ");
+      sourceBuilder.Append(elementBuilderInfo.BuilderFullName);
     }
-
-    if (appendDefaultListBuilderSetter)
+    sourceBuilder.AppendLine(">> buildAction)");
+    sourceBuilder.AppendLine("{", 1);
+    sourceBuilder.Append("return Set");
+    sourceBuilder.Append(propertyName);
+    sourceBuilder.Append("(global::FluentMock.ListBuilder<");
+    sourceBuilder.Append(elementTypeFullName);
+    if (elementBuilderInfo is not null)
     {
-      AppendListBuilderSetter(ref sourceBuilder, propertyName, elementTypeFullName, info, null);
+      sourceBuilder.Append(", ");
+      sourceBuilder.Append(elementBuilderInfo.BuilderFullName);
     }
-
-    static void AppendListBuilderSetter(ref SourceBuilder sourceBuilder, string propertyName, string elementTypeFullName, BuilderInfo info, string? builderFullName)
-    {
-      sourceBuilder.AppendLine();
-      sourceBuilder.Append("public ");
-      sourceBuilder.Append(info.BuilderName);
-      sourceBuilder.Append(" Set");
-      sourceBuilder.Append(propertyName);
-      sourceBuilder.Append("(global::System.Action<global::FluentMock.ListBuilder<");
-      sourceBuilder.Append(elementTypeFullName);
-      if (builderFullName is not null)
-      {
-        sourceBuilder.Append(", ");
-        sourceBuilder.Append(builderFullName);
-      }
-      sourceBuilder.AppendLine(">> buildAction)");
-      sourceBuilder.AppendLine("{", 1);
-      sourceBuilder.Append("return Set");
-      sourceBuilder.Append(propertyName);
-      sourceBuilder.Append("(global::FluentMock.ListBuilder<");
-      sourceBuilder.Append(elementTypeFullName);
-      if (builderFullName is not null)
-      {
-        sourceBuilder.Append(", ");
-        sourceBuilder.Append(builderFullName);
-      }
-      sourceBuilder.AppendLine(">.Build(buildAction));", -1);
-      sourceBuilder.AppendLine("}");
-    }
+    sourceBuilder.AppendLine(">.Build(buildAction));", -1);
+    sourceBuilder.AppendLine("}");
   }
 
   private static void GenerateMethodSetter(ref SourceBuilder sourceBuilder, IMethodSymbol method, BuilderInfo info)
