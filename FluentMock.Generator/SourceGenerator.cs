@@ -7,7 +7,9 @@ namespace FluentMock.Generator;
 internal class SourceGenerator
 {
   private static readonly SymbolDisplayFormat s_namespaceDisplayFormat = SymbolDisplayFormat.FullyQualifiedFormat.WithGlobalNamespaceStyle(SymbolDisplayGlobalNamespaceStyle.OmittedAsContaining);
-  private static readonly SymbolDisplayFormat s_typeDisplayFormat = SymbolDisplayFormat.FullyQualifiedFormat.WithGlobalNamespaceStyle(SymbolDisplayGlobalNamespaceStyle.Included);
+  private static readonly SymbolDisplayFormat s_typeDisplayFormat = SymbolDisplayFormat.FullyQualifiedFormat
+    .WithGlobalNamespaceStyle(SymbolDisplayGlobalNamespaceStyle.Included)
+    .WithMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
 
   public static readonly SourceGenerator Instance = new();
 
@@ -341,7 +343,8 @@ internal class SourceGenerator
     {
       foreach (ITypeSymbol type in types)
       {
-        if (!SymbolEqualityComparer.Default.Equals(type, propertyType) && !type.AllInterfaces.Contains((INamedTypeSymbol)propertyType))
+        bool isSameType = SymbolEqualityComparer.Default.Equals(type, propertyType);
+        if (!isSameType && !type.AllInterfaces.Contains((INamedTypeSymbol)propertyType))
           continue;
 
         BuilderInfo propertyBuilderInfo = GetInfo(type);
@@ -351,9 +354,22 @@ internal class SourceGenerator
         sourceBuilder.Append(info.BuilderName);
         sourceBuilder.Append(" Set");
         sourceBuilder.Append(property.Name);
+        if (!isSameType)
+        {
+          sourceBuilder.Append("<T>");
+        }
         sourceBuilder.Append("(global::System.Action<global::");
         sourceBuilder.Append(propertyBuilderInfo.BuilderFullName);
-        sourceBuilder.AppendLine("> buildAction)");
+        sourceBuilder.Append("> buildAction)");
+        if (!isSameType)
+        {
+          sourceBuilder.Append(" where T : class, ");
+          sourceBuilder.AppendLine(propertyBuilderInfo.TargetFullName);
+        }
+        else
+        {
+          sourceBuilder.AppendLine();
+        }
         sourceBuilder.AppendLine("{", 1);
         sourceBuilder.Append("return Set");
         sourceBuilder.Append(property.Name);
@@ -367,9 +383,22 @@ internal class SourceGenerator
         sourceBuilder.Append(info.BuilderName);
         sourceBuilder.Append(" Set");
         sourceBuilder.Append(property.Name);
+        if (!isSameType)
+        {
+          sourceBuilder.Append("<T>");
+        }
         sourceBuilder.Append("(global::Moq.MockBehavior behavior, global::System.Action<global::");
         sourceBuilder.Append(propertyBuilderInfo.BuilderFullName);
-        sourceBuilder.AppendLine("> buildAction)");
+        sourceBuilder.Append("> buildAction)");
+        if (!isSameType)
+        {
+          sourceBuilder.Append(" where T : class, ");
+          sourceBuilder.AppendLine(propertyBuilderInfo.TargetFullName);
+        }
+        else
+        {
+          sourceBuilder.AppendLine();
+        }
         sourceBuilder.AppendLine("{", 1);
         sourceBuilder.Append("return Set");
         sourceBuilder.Append(property.Name);

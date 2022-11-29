@@ -323,25 +323,106 @@ public class FluentMockGeneratorTests
       .And.ContainSingle(method =>
         method.Name == "SetOther" &&
         method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
+        method.TypeParameters.Length == 1 &&
         method.Parameters.Length == 1 &&
         method.Parameters[0].Type.ToDisplayString(null) == "System.Action<ClassLibrary.FluentMock.MyOtherInterface1Builder>")
       .And.ContainSingle(method =>
         method.Name == "SetOther" &&
         method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
         method.Parameters.Length == 2 &&
+        method.TypeParameters.Length == 1 &&
         method.Parameters[0].Type.ToDisplayString(null) == "Moq.MockBehavior" &&
         method.Parameters[1].Type.ToDisplayString(null) == "System.Action<ClassLibrary.FluentMock.MyOtherInterface1Builder>")
       .And.ContainSingle(method =>
         method.Name == "SetOther" &&
         method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
         method.Parameters.Length == 1 &&
+        method.TypeParameters.Length == 1 &&
         method.Parameters[0].Type.ToDisplayString(null) == "System.Action<ClassLibrary.FluentMock.MyOtherInterface2Builder>")
       .And.ContainSingle(method =>
         method.Name == "SetOther" &&
         method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
         method.Parameters.Length == 2 &&
+        method.TypeParameters.Length == 1 &&
         method.Parameters[0].Type.ToDisplayString(null) == "Moq.MockBehavior" &&
         method.Parameters[1].Type.ToDisplayString(null) == "System.Action<ClassLibrary.FluentMock.MyOtherInterface2Builder>");
+  }
+
+  [Fact]
+  public void ShouldGenerateForBuilderPolymorphicProperty2()
+  {
+    // Arrange
+    string source = """
+      using FluentMock;
+
+      namespace ClassLibrary
+      {
+        public interface IMyInterface
+        {
+          IMyOtherInterfaceBase Other { get; }
+        }
+
+        public interface IMyOtherInterfaceBase { }
+
+        public interface IMyOtherInterface : IMyOtherInterfaceBase { }
+      }
+
+      namespace Test
+      {
+        [GenerateFluentMockFor(typeof(ClassLibrary.IMyInterface))]
+        [GenerateFluentMockFor(typeof(ClassLibrary.IMyOtherInterfaceBase))]
+        [GenerateFluentMockFor(typeof(ClassLibrary.IMyOtherInterface))]
+        class Config { }
+      }
+      """;
+
+
+    // Act
+    Compilation compilation = CompileWithGenerator(source);
+
+    // Assert
+    compilation.GetDiagnostics().Should().NotContain(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+
+    INamedTypeSymbol type = compilation.GetTypeByMetadataName("ClassLibrary.IMyInterface")!;
+    INamedTypeSymbol builderType = compilation.GetTypeByMetadataName("ClassLibrary.FluentMock.MyInterfaceBuilder")!;
+
+    builderType.ShouldMatchBuilderSpecification(type);
+
+    IEnumerable<IMethodSymbol> instanceMethods = builderType
+      .GetMembers()
+      .OfType<IMethodSymbol>()
+      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build" && method.Name != "Setup");
+
+    instanceMethods.Should().HaveCount(5)
+      .And.ContainSingle(method =>
+        method.Name == "SetOther" &&
+        method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
+        method.Parameters.Length == 1 &&
+        method.Parameters[0].Type.ToDisplayString(null) == "ClassLibrary.IMyOtherInterfaceBase")
+      .And.ContainSingle(method =>
+        method.Name == "SetOther" &&
+        method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
+        method.Parameters.Length == 1 &&
+        method.Parameters[0].Type.ToDisplayString(null) == "System.Action<ClassLibrary.FluentMock.MyOtherInterfaceBaseBuilder>")
+      .And.ContainSingle(method =>
+        method.Name == "SetOther" &&
+        method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
+        method.Parameters.Length == 2 &&
+        method.Parameters[0].Type.ToDisplayString(null) == "Moq.MockBehavior" &&
+        method.Parameters[1].Type.ToDisplayString(null) == "System.Action<ClassLibrary.FluentMock.MyOtherInterfaceBaseBuilder>")
+      .And.ContainSingle(method =>
+        method.Name == "SetOther" &&
+        method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
+        method.Parameters.Length == 1 &&
+        method.TypeParameters.Length == 1 &&
+        method.Parameters[0].Type.ToDisplayString(null) == "System.Action<ClassLibrary.FluentMock.MyOtherInterfaceBuilder>")
+      .And.ContainSingle(method =>
+        method.Name == "SetOther" &&
+        method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
+        method.Parameters.Length == 2 &&
+        method.TypeParameters.Length == 1 &&
+        method.Parameters[0].Type.ToDisplayString(null) == "Moq.MockBehavior" &&
+        method.Parameters[1].Type.ToDisplayString(null) == "System.Action<ClassLibrary.FluentMock.MyOtherInterfaceBuilder>");
   }
 
   [Fact]
