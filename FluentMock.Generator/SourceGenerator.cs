@@ -18,6 +18,19 @@ internal class SourceGenerator
     _infoCache = new(SymbolEqualityComparer.Default);
   }
 
+  public string GenerateMoqSettings()
+  {
+    return """
+      namespace FluentMock
+      {
+        public static class MoqSettings
+        {
+          public static global::Moq.MockBehavior DefaultMockBehavior = global::Moq.MockBehavior.Strict;
+        }
+      }
+      """;
+  }
+
   public string GenerateIBuilder()
   {
     return """
@@ -81,7 +94,7 @@ internal class SourceGenerator
 
           public TListBuilder Add(global::System.Action<TBuilder> buildAction)
           {
-            return Add(global::Moq.MockBehavior.Loose, buildAction);
+            return Add(global::FluentMock.MoqSettings.DefaultMockBehavior, buildAction);
           }
         }
 
@@ -155,7 +168,7 @@ internal class SourceGenerator
     sourceBuilder.AppendLine("{", 1);
     GenerateFields(ref sourceBuilder, info);
     sourceBuilder.AppendLine();
-    GenerateConstructor(ref sourceBuilder, info);
+    GenerateConstructors(ref sourceBuilder, info);
     sourceBuilder.AppendLine();
     GenerateMockProperty(ref sourceBuilder, info);
     sourceBuilder.AppendLine();
@@ -252,16 +265,23 @@ internal class SourceGenerator
     sourceBuilder.AppendLine("private readonly global::Moq.MockBehavior _behavior;");
   }
 
-  private static void GenerateConstructor(ref SourceBuilder sourceBuilder, BuilderInfo info)
+  private static void GenerateConstructors(ref SourceBuilder sourceBuilder, BuilderInfo info)
   {
     sourceBuilder.Append("public ");
     sourceBuilder.Append(info.BuilderName);
-    sourceBuilder.AppendLine("(global::Moq.MockBehavior behavior = global::Moq.MockBehavior.Loose)");
+    sourceBuilder.AppendLine("(global::Moq.MockBehavior behavior)");
     sourceBuilder.AppendLine("{", 1);
     sourceBuilder.AppendLine("_behavior = behavior;");
     sourceBuilder.Append("_mock = new global::Moq.Mock<");
     sourceBuilder.Append(info.TargetFullName);
     sourceBuilder.AppendLine(">(behavior);", -1);
+    sourceBuilder.AppendLine("}");
+    sourceBuilder.AppendLine();
+    
+    sourceBuilder.Append("public ");
+    sourceBuilder.Append(info.BuilderName);
+    sourceBuilder.AppendLine("() : this(global::FluentMock.MoqSettings.DefaultMockBehavior)");
+    sourceBuilder.AppendLine("{", 1);
     sourceBuilder.AppendLine("}");
   }
 
@@ -317,41 +337,47 @@ internal class SourceGenerator
     sourceBuilder.AppendLine("return this;", -1);
     sourceBuilder.AppendLine("}");
 
-    if (!isCollection && propertyType.Kind is SymbolKind.NamedType && types.Contains(propertyType))
+    if (!isCollection && propertyType.Kind is SymbolKind.NamedType)
     {
-      BuilderInfo propertyBuilderInfo = GetInfo(propertyType);
+      foreach (ITypeSymbol type in types)
+      {
+        if (!SymbolEqualityComparer.Default.Equals(type, propertyType) && !type.AllInterfaces.Contains((INamedTypeSymbol)propertyType))
+          continue;
 
-      sourceBuilder.AppendLine();
-      sourceBuilder.Append("public ");
-      sourceBuilder.Append(info.BuilderName);
-      sourceBuilder.Append(" Set");
-      sourceBuilder.Append(property.Name);
-      sourceBuilder.Append("(global::System.Action<global::");
-      sourceBuilder.Append(propertyBuilderInfo.BuilderFullName);
-      sourceBuilder.AppendLine("> buildAction)");
-      sourceBuilder.AppendLine("{", 1);
-      sourceBuilder.Append("return Set");
-      sourceBuilder.Append(property.Name);
-      sourceBuilder.Append("(global::");
-      sourceBuilder.Append(propertyBuilderInfo.BuilderFullName);
-      sourceBuilder.AppendLine(".Build(buildAction));", -1);
-      sourceBuilder.AppendLine("}");
+        BuilderInfo propertyBuilderInfo = GetInfo(type);
+        
+        sourceBuilder.AppendLine();
+        sourceBuilder.Append("public ");
+        sourceBuilder.Append(info.BuilderName);
+        sourceBuilder.Append(" Set");
+        sourceBuilder.Append(property.Name);
+        sourceBuilder.Append("(global::System.Action<global::");
+        sourceBuilder.Append(propertyBuilderInfo.BuilderFullName);
+        sourceBuilder.AppendLine("> buildAction)");
+        sourceBuilder.AppendLine("{", 1);
+        sourceBuilder.Append("return Set");
+        sourceBuilder.Append(property.Name);
+        sourceBuilder.Append("(global::");
+        sourceBuilder.Append(propertyBuilderInfo.BuilderFullName);
+        sourceBuilder.AppendLine(".Build(buildAction));", -1);
+        sourceBuilder.AppendLine("}");
 
-      sourceBuilder.AppendLine();
-      sourceBuilder.Append("public ");
-      sourceBuilder.Append(info.BuilderName);
-      sourceBuilder.Append(" Set");
-      sourceBuilder.Append(property.Name);
-      sourceBuilder.Append("(global::Moq.MockBehavior behavior, global::System.Action<global::");
-      sourceBuilder.Append(propertyBuilderInfo.BuilderFullName);
-      sourceBuilder.AppendLine("> buildAction)");
-      sourceBuilder.AppendLine("{", 1);
-      sourceBuilder.Append("return Set");
-      sourceBuilder.Append(property.Name);
-      sourceBuilder.Append("(global::");
-      sourceBuilder.Append(propertyBuilderInfo.BuilderFullName);
-      sourceBuilder.AppendLine(".Build(behavior, buildAction));", -1);
-      sourceBuilder.AppendLine("}");
+        sourceBuilder.AppendLine();
+        sourceBuilder.Append("public ");
+        sourceBuilder.Append(info.BuilderName);
+        sourceBuilder.Append(" Set");
+        sourceBuilder.Append(property.Name);
+        sourceBuilder.Append("(global::Moq.MockBehavior behavior, global::System.Action<global::");
+        sourceBuilder.Append(propertyBuilderInfo.BuilderFullName);
+        sourceBuilder.AppendLine("> buildAction)");
+        sourceBuilder.AppendLine("{", 1);
+        sourceBuilder.Append("return Set");
+        sourceBuilder.Append(property.Name);
+        sourceBuilder.Append("(global::");
+        sourceBuilder.Append(propertyBuilderInfo.BuilderFullName);
+        sourceBuilder.AppendLine(".Build(behavior, buildAction));", -1);
+        sourceBuilder.AppendLine("}");
+      }
 
       return;
     }
@@ -361,9 +387,6 @@ internal class SourceGenerator
 
     ITypeSymbol elementType = ((INamedTypeSymbol)propertyType).TypeArguments[0];
     string elementTypeFullName = elementType.ToDisplayString(s_typeDisplayFormat);
-    BuilderInfo? elementBuilderInfo = elementType.Kind is SymbolKind.NamedType && types.Contains(elementType)
-      ? GetInfo(elementType)
-      : null;
 
     sourceBuilder.AppendLine();
     sourceBuilder.Append("public ");
@@ -381,31 +404,50 @@ internal class SourceGenerator
     sourceBuilder.AppendLine(">);", -1);
     sourceBuilder.AppendLine("}");
 
-    sourceBuilder.AppendLine();
-    sourceBuilder.Append("public ");
-    sourceBuilder.Append(info.BuilderName);
-    sourceBuilder.Append(" Set");
-    sourceBuilder.Append(propertyName);
-    sourceBuilder.Append("(global::System.Action<global::FluentMock.ListBuilder<");
-    sourceBuilder.Append(elementTypeFullName);
-    if (elementBuilderInfo is not null)
+    bool appendDefaultListBuilderSetter = true;
+    foreach (ITypeSymbol type in types)
     {
-      sourceBuilder.Append(", ");
-      sourceBuilder.Append(elementBuilderInfo.BuilderFullName);
+      if (SymbolEqualityComparer.Default.Equals(type, elementType) || type.AllInterfaces.Contains((INamedTypeSymbol)elementType))
+      {
+        appendDefaultListBuilderSetter = false;
+        BuilderInfo elementBuilderInfo = GetInfo(type);
+        AppendListBuilderSetter(ref sourceBuilder, propertyName, elementTypeFullName, info, elementBuilderInfo.BuilderFullName);
+      }
     }
-    sourceBuilder.AppendLine(">> buildAction)");
-    sourceBuilder.AppendLine("{", 1);
-    sourceBuilder.Append("return Set");
-    sourceBuilder.Append(propertyName);
-    sourceBuilder.Append("(global::FluentMock.ListBuilder<");
-    sourceBuilder.Append(elementTypeFullName);
-    if (elementBuilderInfo is not null)
+
+    if (appendDefaultListBuilderSetter)
     {
-      sourceBuilder.Append(", ");
-      sourceBuilder.Append(elementBuilderInfo.BuilderFullName);
+      AppendListBuilderSetter(ref sourceBuilder, propertyName, elementTypeFullName, info, null);
     }
-    sourceBuilder.AppendLine(">.Build(buildAction));", -1);
-    sourceBuilder.AppendLine("}");
+
+    static void AppendListBuilderSetter(ref SourceBuilder sourceBuilder, string propertyName, string elementTypeFullName, BuilderInfo info, string? builderFullName)
+    {
+      sourceBuilder.AppendLine();
+      sourceBuilder.Append("public ");
+      sourceBuilder.Append(info.BuilderName);
+      sourceBuilder.Append(" Set");
+      sourceBuilder.Append(propertyName);
+      sourceBuilder.Append("(global::System.Action<global::FluentMock.ListBuilder<");
+      sourceBuilder.Append(elementTypeFullName);
+      if (builderFullName is not null)
+      {
+        sourceBuilder.Append(", ");
+        sourceBuilder.Append(builderFullName);
+      }
+      sourceBuilder.AppendLine(">> buildAction)");
+      sourceBuilder.AppendLine("{", 1);
+      sourceBuilder.Append("return Set");
+      sourceBuilder.Append(propertyName);
+      sourceBuilder.Append("(global::FluentMock.ListBuilder<");
+      sourceBuilder.Append(elementTypeFullName);
+      if (builderFullName is not null)
+      {
+        sourceBuilder.Append(", ");
+        sourceBuilder.Append(builderFullName);
+      }
+      sourceBuilder.AppendLine(">.Build(buildAction));", -1);
+      sourceBuilder.AppendLine("}");
+    }
   }
 
   private static void GenerateMethodSetter(ref SourceBuilder sourceBuilder, IMethodSymbol method, BuilderInfo info)
@@ -483,7 +525,7 @@ internal class SourceGenerator
     sourceBuilder.Append(info.BuilderName);
     sourceBuilder.AppendLine("> buildAction)");
     sourceBuilder.AppendLine("{", 1);
-    sourceBuilder.AppendLine("return Build(global::Moq.MockBehavior.Loose, buildAction);", -1);
+    sourceBuilder.AppendLine("return Build(global::FluentMock.MoqSettings.DefaultMockBehavior, buildAction);", -1);
     sourceBuilder.AppendLine("}", -1);
   }
 }

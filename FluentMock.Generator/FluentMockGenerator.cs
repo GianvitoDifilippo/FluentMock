@@ -23,6 +23,7 @@ internal class FluentMockGenerator : IIncrementalGenerator
   {
     context.AddSource("IBuilder", SourceGenerator.Instance.GenerateIBuilder());
     context.AddSource("ListBuilder", SourceGenerator.Instance.GenerateListBuilder());
+    context.AddSource("MoqSettings", SourceGenerator.Instance.GenerateMoqSettings());
 
     foreach (ITypeSymbol type in types)
     {

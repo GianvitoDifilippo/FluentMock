@@ -25,11 +25,12 @@ internal static class SymbolAssertionExtensions
       .OfType<IMethodSymbol>()
       .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && (!method.Name.StartsWith("Set") || method.Name == "Setup"));
 
-    constructors.Should().HaveCount(1)
+    constructors.Should().HaveCount(2)
+      .And.ContainSingle(ctor =>
+        ctor.Parameters.Length == 0)
       .And.ContainSingle(ctor =>
         ctor.Parameters.Length == 1 &&
-        ctor.Parameters[0].Type.ToDisplayString(null) == "Moq.MockBehavior" &&
-        ctor.Parameters[0].HasExplicitDefaultValue);
+        ctor.Parameters[0].Type.ToDisplayString(null) == "Moq.MockBehavior");
 
     staticMethods.Should().HaveCount(2)
       .And.ContainSingle(method =>
