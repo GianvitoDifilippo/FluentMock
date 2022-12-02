@@ -1,6 +1,8 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Threading;
 
@@ -19,16 +21,16 @@ internal class FluentMockGenerator : IIncrementalGenerator
     context.RegisterSourceOutput(values, Execute!);
   }
 
-  private void Execute(SourceProductionContext context, ImmutableArray<ITypeSymbol> types)
+  private void Execute(SourceProductionContext context, ImmutableArray<TargetInfo> infos)
   {
     context.AddSource("IBuilder", SourceGenerator.Instance.GenerateIBuilder());
     context.AddSource("ListBuilder", SourceGenerator.Instance.GenerateListBuilder());
     context.AddSource("MoqSettings", SourceGenerator.Instance.GenerateMoqSettings());
 
-    foreach (ITypeSymbol type in types)
+    foreach (TargetInfo info in infos)
     {
-      string hint = type.ToDisplayString();
-      string source = SourceGenerator.Instance.GenerateObjectBuilder(in types, type);
+      string hint = info.Symbol.ToDisplayString();
+      string source = SourceGenerator.Instance.GenerateObjectBuilder(in infos, info);
       context.AddSource(hint, source);
     }
   }
@@ -41,20 +43,46 @@ internal class FluentMockGenerator : IIncrementalGenerator
       {
         Identifier.Text: "GenerateFluentMockFor"
       },
-      ArgumentList.Arguments.Count: 1
+      ArgumentList.Arguments.Count: 1 or 2
     };
   }
 
-  private static ITypeSymbol? SelectTargetType(GeneratorSyntaxContext context, CancellationToken cancellationToken)
+  private static TargetInfo? SelectTargetType(GeneratorSyntaxContext context, CancellationToken cancellationToken)
   {
-    AttributeSyntax attributeSyntax = (AttributeSyntax)context.Node;
-    if (attributeSyntax.ArgumentList!.Arguments[0].Expression is not TypeOfExpressionSyntax typeOfExpressionSyntax)
+    AttributeSyntax attribute = (AttributeSyntax)context.Node;
+    AttributeArgumentListSyntax attributeArgumentList = attribute.ArgumentList!;
+    if (attributeArgumentList.Arguments[0].Expression is not TypeOfExpressionSyntax typeOfExpression)
       return null;
 
-    SymbolInfo info = context.SemanticModel.GetSymbolInfo(typeOfExpressionSyntax.Type, cancellationToken);
+    IReadOnlyCollection<string> toIgnore = GetMembersToIgnore(attributeArgumentList);
+
+    SymbolInfo info = context.SemanticModel.GetSymbolInfo(typeOfExpression.Type, cancellationToken);
     if (info.Symbol is not INamedTypeSymbol typeSymbol || typeSymbol.TypeKind is not TypeKind.Interface)
       return null;
 
-    return typeSymbol;
+    return new(typeSymbol, toIgnore);
+  }
+
+  private static IReadOnlyCollection<string> GetMembersToIgnore(AttributeArgumentListSyntax attributeArgumentList)
+  {
+    if (attributeArgumentList.Arguments.Count != 2)
+      return Array.Empty<string>();
+
+    if (attributeArgumentList.Arguments[1].Expression is not ArrayCreationExpressionSyntax arrayCreationExpression)
+      return Array.Empty<string>();
+
+    if (arrayCreationExpression.Initializer is not { } initializerExpression)
+      return Array.Empty<string>();
+
+    HashSet<string> result = new();
+    foreach (ExpressionSyntax expression in initializerExpression.Expressions)
+    {
+      if (expression is not LiteralExpressionSyntax literalExpression)
+        return Array.Empty<string>();
+
+      result.Add(literalExpression.Token.ValueText);
+    }
+
+    return result;
   }
 }

@@ -1,6 +1,8 @@
 ﻿using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 
 namespace FluentMock.Generator;
 
@@ -136,19 +138,93 @@ internal class SourceGenerator
       """;
   }
 
-  public string GenerateObjectBuilder(in ImmutableArray<ITypeSymbol> types, ITypeSymbol type)
+  public string GenerateObjectBuilder(in ImmutableArray<TargetInfo> infos, TargetInfo targetInfo)
   {
+    (INamedTypeSymbol type, IReadOnlyCollection<string> toIgnore) = targetInfo;
     BuilderInfo info = GetInfo(type);
 
-    SourceBuilder sourceBuilder = new(100); // TODO: Estimate capacity
+    SourceBuilder sourceBuilder = new(256); // TODO: Estimate capacity
 
     sourceBuilder.Append("namespace ");
     sourceBuilder.Append(info.TargetNamespace);
     sourceBuilder.AppendLine(".FluentMock");
     sourceBuilder.AppendLine("{", 1);
 
-    bool appendLineForDelegates = false;
     IEnumerable<ISymbol> allMembers = type.GetAllMembers();
+    // GenerateDelegates(ref sourceBuilder, allMembers);
+
+    sourceBuilder.Append("internal class ");
+    sourceBuilder.Append(info.BuilderName);
+    sourceBuilder.Append(" : global::FluentMock.IBuilder<");
+    sourceBuilder.Append(info.TargetFullName);
+    sourceBuilder.AppendLine(">");
+    sourceBuilder.AppendLine("{", 1);
+    GenerateFields(ref sourceBuilder, info);
+    sourceBuilder.AppendLine();
+    GenerateConstructors(ref sourceBuilder, info);
+    sourceBuilder.AppendLine();
+    GenerateMockProperty(ref sourceBuilder, info);
+    sourceBuilder.AppendLine();
+    GenerateInstanceBuildMethod(ref sourceBuilder, info);
+    sourceBuilder.AppendLine();
+    GenerateSetupMethod(ref sourceBuilder, info);
+    sourceBuilder.AppendLine();
+
+    foreach (ISymbol member in allMembers)
+    {
+      if (member is IPropertySymbol property && !toIgnore.Contains(property.Name))
+      {
+        GeneratePropertySetters(ref sourceBuilder, in infos, property, info);
+        sourceBuilder.AppendLine();
+      }
+      // else if (member is IMethodSymbol method && method.MethodKind is MethodKind.Ordinary && method.RefKind is RefKind.None)
+      // {
+      //   bool hasRefStructParams = false;
+      //   foreach (IParameterSymbol parameter in method.Parameters)
+      //   {
+      //     if (parameter.Type.IsRefLikeType)
+      //     {
+      //       hasRefStructParams = true;
+      //       break;
+      //     }
+      //   }
+      // 
+      //   if (hasRefStructParams)
+      //     continue;
+      // 
+      //   GenerateMethodSetter(ref sourceBuilder, (IMethodSymbol)member, info);
+      //   sourceBuilder.AppendLine();
+      // }
+    }
+
+    GenerateStaticBuildMethods(ref sourceBuilder, info);
+
+    sourceBuilder.AppendLine("}", -1);
+    sourceBuilder.AppendLine("}");
+
+    return sourceBuilder.Source;
+  }
+
+  private BuilderInfo GetInfo(ITypeSymbol type)
+  {
+    if (!_infoCache.TryGetValue(type, out BuilderInfo? info))
+    {
+      string targetNamespace = type.ContainingNamespace.ToDisplayString(s_namespaceDisplayFormat);
+      string targetFullName = type.ToDisplayString(s_typeDisplayFormat);
+      string builderName = type.Name[0] is 'I'
+        ? $"{type.Name[1..]}Builder"
+        : $"{type.Name}Builder";
+
+      info = new(targetNamespace, targetFullName, builderName);
+      _infoCache.Add(type, info);
+    }
+
+    return info;
+  }
+
+  private void GenerateDelegates(ref SourceBuilder sourceBuilder, IEnumerable<ISymbol> allMembers)
+  {
+    bool appendLineForDelegates = false;
 
     foreach (ISymbol member in allMembers)
     {
@@ -175,74 +251,6 @@ internal class SourceGenerator
     {
       sourceBuilder.AppendLine();
     }
-
-    sourceBuilder.Append("internal class ");
-    sourceBuilder.Append(info.BuilderName);
-    sourceBuilder.Append(" : global::FluentMock.IBuilder<");
-    sourceBuilder.Append(info.TargetFullName);
-    sourceBuilder.AppendLine(">");
-    sourceBuilder.AppendLine("{", 1);
-    GenerateFields(ref sourceBuilder, info);
-    sourceBuilder.AppendLine();
-    GenerateConstructors(ref sourceBuilder, info);
-    sourceBuilder.AppendLine();
-    GenerateMockProperty(ref sourceBuilder, info);
-    sourceBuilder.AppendLine();
-    GenerateInstanceBuildMethod(ref sourceBuilder, info);
-    sourceBuilder.AppendLine();
-    GenerateSetupMethod(ref sourceBuilder, info);
-    sourceBuilder.AppendLine();
-
-    foreach (ISymbol member in allMembers)
-    {
-      if (member is IPropertySymbol property)
-      {
-        GeneratePropertySetters(ref sourceBuilder, in types, property, info);
-        sourceBuilder.AppendLine();
-      }
-      else if (member is IMethodSymbol method && method.MethodKind is MethodKind.Ordinary && method.RefKind is RefKind.None)
-      {
-        bool hasRefStructParams = false;
-        foreach (IParameterSymbol parameter in method.Parameters)
-        {
-          if (parameter.Type.IsRefLikeType)
-          {
-            hasRefStructParams = true;
-            break;
-          }
-        }
-
-        if (hasRefStructParams)
-          continue;
-
-        GenerateMethodSetter(ref sourceBuilder, (IMethodSymbol)member, info);
-        sourceBuilder.AppendLine();
-      }
-    }
-
-    GenerateStaticBuildMethods(ref sourceBuilder, info);
-
-    sourceBuilder.AppendLine("}", -1);
-    sourceBuilder.AppendLine("}");
-
-    return sourceBuilder.Source;
-  }
-
-  private BuilderInfo GetInfo(ITypeSymbol type)
-  {
-    if (!_infoCache.TryGetValue(type, out BuilderInfo? info))
-    {
-      string targetNamespace = type.ContainingNamespace.ToDisplayString(s_namespaceDisplayFormat);
-      string targetFullName = type.ToDisplayString(s_typeDisplayFormat);
-      string builderName = type.Name[0] is 'I'
-        ? $"{type.Name[1..]}Builder"
-        : $"{type.Name}Builder";
-
-      info = new(targetNamespace, targetFullName, builderName);
-      _infoCache.Add(type, info);
-    }
-
-    return info;
   }
 
   private static void GenerateDelegate(ref SourceBuilder sourceBuilder, IMethodSymbol method)
@@ -297,7 +305,7 @@ internal class SourceGenerator
     sourceBuilder.Append("public ");
     sourceBuilder.Append(info.BuilderName);
     sourceBuilder.AppendLine("() : this(global::FluentMock.MoqSettings.DefaultMockBehavior)");
-    sourceBuilder.AppendLine("{", 1);
+    sourceBuilder.AppendLine("{");
     sourceBuilder.AppendLine("}");
   }
 
@@ -328,7 +336,7 @@ internal class SourceGenerator
     sourceBuilder.AppendLine("}");
   }
 
-  private void GeneratePropertySetters(ref SourceBuilder sourceBuilder, in ImmutableArray<ITypeSymbol> types, IPropertySymbol property, BuilderInfo info)
+  private void GeneratePropertySetters(ref SourceBuilder sourceBuilder, in ImmutableArray<TargetInfo> infos, IPropertySymbol property, BuilderInfo info)
   {
     ITypeSymbol propertyType = property.Type;
     string propertyName = property.Name;
@@ -355,8 +363,9 @@ internal class SourceGenerator
 
     if (!isCollection && propertyType.Kind is SymbolKind.NamedType)
     {
-      foreach (ITypeSymbol type in types)
+      foreach (TargetInfo targetInfo in infos)
       {
+        (INamedTypeSymbol type, _) = targetInfo;
         bool isSameType = SymbolEqualityComparer.Default.Equals(type, propertyType);
         if (!isSameType && !type.AllInterfaces.Contains((INamedTypeSymbol)propertyType))
           continue;
@@ -430,9 +439,7 @@ internal class SourceGenerator
 
     ITypeSymbol elementType = ((INamedTypeSymbol)propertyType).TypeArguments[0];
     string elementTypeFullName = elementType.ToDisplayString(s_typeDisplayFormat);
-    BuilderInfo? elementBuilderInfo = elementType.Kind is SymbolKind.NamedType && types.Contains(elementType)
-      ? GetInfo(elementType)
-      : null;
+    bool hasBuilderInfo = TryGetBuilderInfo(elementType, in infos, out BuilderInfo? elementBuilderInfo);
 
     sourceBuilder.AppendLine();
     sourceBuilder.Append("public ");
@@ -457,10 +464,10 @@ internal class SourceGenerator
     sourceBuilder.Append(propertyName);
     sourceBuilder.Append("(global::System.Action<global::FluentMock.ListBuilder<");
     sourceBuilder.Append(elementTypeFullName);
-    if (elementBuilderInfo is not null)
+    if (hasBuilderInfo)
     {
       sourceBuilder.Append(", ");
-      sourceBuilder.Append(elementBuilderInfo.BuilderFullName);
+      sourceBuilder.Append(elementBuilderInfo!.BuilderFullName);
     }
     sourceBuilder.AppendLine(">> buildAction)");
     sourceBuilder.AppendLine("{", 1);
@@ -468,10 +475,10 @@ internal class SourceGenerator
     sourceBuilder.Append(propertyName);
     sourceBuilder.Append("(global::FluentMock.ListBuilder<");
     sourceBuilder.Append(elementTypeFullName);
-    if (elementBuilderInfo is not null)
+    if (hasBuilderInfo)
     {
       sourceBuilder.Append(", ");
-      sourceBuilder.Append(elementBuilderInfo.BuilderFullName);
+      sourceBuilder.Append(elementBuilderInfo!.BuilderFullName);
     }
     sourceBuilder.AppendLine(">.Build(buildAction));", -1);
     sourceBuilder.AppendLine("}");
@@ -554,5 +561,26 @@ internal class SourceGenerator
     sourceBuilder.AppendLine("{", 1);
     sourceBuilder.AppendLine("return Build(global::FluentMock.MoqSettings.DefaultMockBehavior, buildAction);", -1);
     sourceBuilder.AppendLine("}", -1);
+  }
+
+  private bool TryGetBuilderInfo(ITypeSymbol type, in ImmutableArray<TargetInfo> infos, out BuilderInfo? builderInfo)
+  {
+    if (type.Kind is not SymbolKind.NamedType)
+    {
+      builderInfo = null;
+      return false;
+    }
+
+    foreach (var info in infos)
+    {
+      if (SymbolEqualityComparer.Default.Equals(info.Symbol, type))
+      {
+        builderInfo = GetInfo(type);
+        return true;
+      }
+    }
+
+    builderInfo = null;
+    return false;
   }
 }

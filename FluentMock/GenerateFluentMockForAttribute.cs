@@ -11,4 +11,6 @@ public class GenerateFluentMockForAttribute : Attribute
   }
 
   public Type Type { get; }
+
+  public string[]? Ignore { get; set; }
 }

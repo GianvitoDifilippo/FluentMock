@@ -160,7 +160,7 @@ public class FluentMockGeneratorTests
   }
 
   [Fact]
-  public void ShouldGenerateForMethod()
+  public void ShouldNotGenerateForMethod()
   {
     // Arrange
     string source = """
@@ -198,12 +198,7 @@ public class FluentMockGeneratorTests
       .OfType<IMethodSymbol>()
       .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build" && method.Name != "Setup");
 
-    instanceMethods.Should().HaveCount(1)
-      .And.ContainSingle(method =>
-        method.Name == "SetMethod" &&
-        method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
-        method.Parameters.Length == 1 &&
-        method.Parameters[0].Type.ToDisplayString(null) == "ClassLibrary.FluentMock._MethodDelegate");
+    instanceMethods.Should().HaveCount(0);
   }
 
   [Fact]
@@ -538,21 +533,6 @@ public class FluentMockGeneratorTests
         method.Parameters[0].Type.ToDisplayString(null) == "string");
   }
 
-  private static Compilation CompileWithGenerator(string source)
-  {
-    SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(source);
-    Compilation compilation = CSharpCompilation.Create(
-      assemblyName: "Test",
-      syntaxTrees: new[] { syntaxTree },
-      references: s_references,
-      options: new(OutputKind.DynamicallyLinkedLibrary));
-
-    GeneratorDriver driver = CSharpGeneratorDriver.Create(new FluentMockGenerator());
-    driver.RunGeneratorsAndUpdateCompilation(compilation, out Compilation outputCompilation, out _);
-
-    return outputCompilation;
-  }
-
   [Fact]
   public void ShouldNotGenerateForMethodWithRefStructParam()
   {
@@ -594,5 +574,68 @@ public class FluentMockGeneratorTests
       .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build" && method.Name != "Setup");
 
     instanceMethods.Should().HaveCount(0);
+  }
+
+  [Fact]
+  public void ShouldIgnoreSpecifiedMembers()
+  {
+    // Arrange
+    string source = """
+      using FluentMock;
+
+      namespace ClassLibrary
+      {
+        public interface IMyInterface
+        {
+          string Name { get; }
+          string IgnoreMe { get; }
+        }
+      }
+
+      namespace Test
+      {
+        [GenerateFluentMockFor(typeof(ClassLibrary.IMyInterface), Ignore = new string[] { "IgnoreMe" })]
+        class Config { }
+      }
+      """;
+
+
+    // Act
+    Compilation compilation = CompileWithGenerator(source);
+
+    // Assert
+    compilation.GetDiagnostics().Should().NotContain(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+
+    INamedTypeSymbol type = compilation.GetTypeByMetadataName("ClassLibrary.IMyInterface")!;
+    INamedTypeSymbol builderType = compilation.GetTypeByMetadataName("ClassLibrary.FluentMock.MyInterfaceBuilder")!;
+
+    builderType.ShouldMatchBuilderSpecification(type);
+
+    IEnumerable<IMethodSymbol> instanceMethods = builderType
+      .GetMembers()
+      .OfType<IMethodSymbol>()
+      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build" && method.Name != "Setup");
+
+    instanceMethods.Should().HaveCount(1)
+      .And.ContainSingle(method =>
+        method.Name == "SetName" &&
+        method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
+        method.Parameters.Length == 1 &&
+        method.Parameters[0].Type.ToDisplayString(null) == "string");
+  }
+
+  private static Compilation CompileWithGenerator(string source)
+  {
+    SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(source);
+    Compilation compilation = CSharpCompilation.Create(
+      assemblyName: "Test",
+      syntaxTrees: new[] { syntaxTree },
+      references: s_references,
+      options: new(OutputKind.DynamicallyLinkedLibrary));
+
+    GeneratorDriver driver = CSharpGeneratorDriver.Create(new FluentMockGenerator());
+    driver.RunGeneratorsAndUpdateCompilation(compilation, out Compilation outputCompilation, out _);
+
+    return outputCompilation;
   }
 }
