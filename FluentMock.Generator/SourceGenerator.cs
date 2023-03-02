@@ -22,10 +22,10 @@ internal class SourceGenerator
     _infoCache = new(SymbolEqualityComparer.Default);
   }
 
-  public string GenerateMoqSettings()
+  public string GenerateMoqSettings(string namespacePrefix)
   {
-    return """
-      namespace FluentMock
+    return $$"""
+      namespace {{namespacePrefix}}FluentMock
       {
         public static class MoqSettings
         {
@@ -35,10 +35,10 @@ internal class SourceGenerator
       """;
   }
 
-  public string GenerateIBuilder()
+  public string GenerateIBuilder(string namespacePrefix)
   {
-    return """
-      namespace FluentMock
+    return $$"""
+      namespace {{namespacePrefix}}FluentMock
       {
         public interface IBuilder<out T>
         {
@@ -48,10 +48,10 @@ internal class SourceGenerator
       """;
   }
 
-  public string GenerateListBuilder()
+  public string GenerateListBuilder(string namespacePrefix)
   {
-    return """
-      namespace FluentMock
+    return $$"""
+      namespace {{namespacePrefix}}FluentMock
       {
         internal abstract class __ListBuilderBase<T, TListBuilder>
           where TListBuilder : __ListBuilderBase<T, TListBuilder>, new()
@@ -106,13 +106,13 @@ internal class SourceGenerator
 
           public TListBuilder Add(global::System.Action<TBuilder> buildAction)
           {
-            return Add(global::FluentMock.MoqSettings.DefaultMockBehavior, buildAction);
+            return Add(MoqSettings.DefaultMockBehavior, buildAction);
           }
 
           public TListBuilder Add<TDerivedBuilder>(global::System.Action<TDerivedBuilder> buildAction)
             where TDerivedBuilder : IBuilder<T>
           {
-            return Add<TDerivedBuilder>(global::FluentMock.MoqSettings.DefaultMockBehavior, buildAction);
+            return Add<TDerivedBuilder>(MoqSettings.DefaultMockBehavior, buildAction);
           }
         }
 
@@ -138,7 +138,7 @@ internal class SourceGenerator
       """;
   }
 
-  public string GenerateObjectBuilder(in ImmutableArray<TargetInfo> infos, TargetInfo targetInfo)
+  public string GenerateObjectBuilder(in ImmutableArray<TargetInfo> infos, TargetInfo targetInfo, string namespacePrefix)
   {
     (INamedTypeSymbol type, IReadOnlyCollection<string> toIgnore) = targetInfo;
     BuilderInfo info = GetInfo(type);
@@ -155,13 +155,13 @@ internal class SourceGenerator
 
     sourceBuilder.Append("internal class ");
     sourceBuilder.Append(info.BuilderName);
-    sourceBuilder.Append(" : global::FluentMock.IBuilder<");
+    sourceBuilder.Append($" : global::{namespacePrefix}FluentMock.IBuilder<");
     sourceBuilder.Append(info.TargetFullName);
     sourceBuilder.AppendLine(">");
     sourceBuilder.AppendLine("{", 1);
     GenerateFields(ref sourceBuilder, info);
     sourceBuilder.AppendLine();
-    GenerateConstructors(ref sourceBuilder, info);
+    GenerateConstructors(ref sourceBuilder, info, namespacePrefix);
     sourceBuilder.AppendLine();
     GenerateMockProperty(ref sourceBuilder, info);
     sourceBuilder.AppendLine();
@@ -174,7 +174,7 @@ internal class SourceGenerator
     {
       if (member is IPropertySymbol property && !toIgnore.Contains(property.Name))
       {
-        GeneratePropertySetters(ref sourceBuilder, in infos, property, info);
+        GeneratePropertySetters(ref sourceBuilder, in infos, property, info, namespacePrefix);
         sourceBuilder.AppendLine();
       }
       // else if (member is IMethodSymbol method && method.MethodKind is MethodKind.Ordinary && method.RefKind is RefKind.None)
@@ -197,7 +197,7 @@ internal class SourceGenerator
       // }
     }
 
-    GenerateStaticBuildMethods(ref sourceBuilder, info);
+    GenerateStaticBuildMethods(ref sourceBuilder, info, namespacePrefix);
 
     sourceBuilder.AppendLine("}", -1);
     sourceBuilder.AppendLine("}");
@@ -289,7 +289,7 @@ internal class SourceGenerator
     sourceBuilder.AppendLine("private readonly global::Moq.MockBehavior _behavior;");
   }
 
-  private static void GenerateConstructors(ref SourceBuilder sourceBuilder, BuilderInfo info)
+  private static void GenerateConstructors(ref SourceBuilder sourceBuilder, BuilderInfo info, string namespacePrefix)
   {
     sourceBuilder.Append("public ");
     sourceBuilder.Append(info.BuilderName);
@@ -304,7 +304,7 @@ internal class SourceGenerator
     
     sourceBuilder.Append("public ");
     sourceBuilder.Append(info.BuilderName);
-    sourceBuilder.AppendLine("() : this(global::FluentMock.MoqSettings.DefaultMockBehavior)");
+    sourceBuilder.AppendLine($"() : this(global::{namespacePrefix}FluentMock.MoqSettings.DefaultMockBehavior)");
     sourceBuilder.AppendLine("{");
     sourceBuilder.AppendLine("}");
   }
@@ -336,7 +336,7 @@ internal class SourceGenerator
     sourceBuilder.AppendLine("}");
   }
 
-  private void GeneratePropertySetters(ref SourceBuilder sourceBuilder, in ImmutableArray<TargetInfo> infos, IPropertySymbol property, BuilderInfo info)
+  private void GeneratePropertySetters(ref SourceBuilder sourceBuilder, in ImmutableArray<TargetInfo> infos, IPropertySymbol property, BuilderInfo info, string namespacePrefix)
   {
     ITypeSymbol propertyType = property.Type;
     string propertyName = property.Name;
@@ -462,7 +462,7 @@ internal class SourceGenerator
     sourceBuilder.Append(info.BuilderName);
     sourceBuilder.Append(" Set");
     sourceBuilder.Append(propertyName);
-    sourceBuilder.Append("(global::System.Action<global::FluentMock.ListBuilder<");
+    sourceBuilder.Append($"(global::System.Action<global::{namespacePrefix}FluentMock.ListBuilder<");
     sourceBuilder.Append(elementTypeFullName);
     if (hasBuilderInfo)
     {
@@ -473,7 +473,7 @@ internal class SourceGenerator
     sourceBuilder.AppendLine("{", 1);
     sourceBuilder.Append("return Set");
     sourceBuilder.Append(propertyName);
-    sourceBuilder.Append("(global::FluentMock.ListBuilder<");
+    sourceBuilder.Append($"(global::{namespacePrefix}FluentMock.ListBuilder<");
     sourceBuilder.Append(elementTypeFullName);
     if (hasBuilderInfo)
     {
@@ -537,7 +537,7 @@ internal class SourceGenerator
     sourceBuilder.AppendLine("}");
   }
 
-  private static void GenerateStaticBuildMethods(ref SourceBuilder sourceBuilder, BuilderInfo info)
+  private static void GenerateStaticBuildMethods(ref SourceBuilder sourceBuilder, BuilderInfo info, string namespacePrefix)
   {
     sourceBuilder.Append("public static ");
     sourceBuilder.Append(info.TargetFullName);
@@ -559,7 +559,7 @@ internal class SourceGenerator
     sourceBuilder.Append(info.BuilderName);
     sourceBuilder.AppendLine("> buildAction)");
     sourceBuilder.AppendLine("{", 1);
-    sourceBuilder.AppendLine("return Build(global::FluentMock.MoqSettings.DefaultMockBehavior, buildAction);", -1);
+    sourceBuilder.AppendLine($"return Build(global::{namespacePrefix}FluentMock.MoqSettings.DefaultMockBehavior, buildAction);", -1);
     sourceBuilder.AppendLine("}", -1);
   }
 

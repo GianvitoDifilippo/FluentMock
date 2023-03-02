@@ -156,7 +156,7 @@ public class FluentMockGeneratorTests
         method.Name == "SetNames" &&
         method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
         method.Parameters.Length == 1 &&
-        method.Parameters[0].Type.ToDisplayString(null) == "System.Action<FluentMock.ListBuilder<string>>");
+        method.Parameters[0].Type.ToDisplayString(null) == "System.Action<Test.FluentMock.ListBuilder<string>>");
   }
 
   [Fact]
@@ -479,7 +479,7 @@ public class FluentMockGeneratorTests
         method.Name == "SetOthers" &&
         method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
         method.Parameters.Length == 1 &&
-        method.Parameters[0].Type.ToDisplayString(null) == "System.Action<FluentMock.ListBuilder<ClassLibrary.IMyOtherInterface, ClassLibrary.FluentMock.MyOtherInterfaceBuilder>>");
+        method.Parameters[0].Type.ToDisplayString(null) == "System.Action<Test.FluentMock.ListBuilder<ClassLibrary.IMyOtherInterface, ClassLibrary.FluentMock.MyOtherInterfaceBuilder>>");
   }
 
   [Fact]

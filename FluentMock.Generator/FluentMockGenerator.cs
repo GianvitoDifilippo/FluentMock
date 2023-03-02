@@ -13,24 +13,30 @@ internal class FluentMockGenerator : IIncrementalGenerator
 {
   public void Initialize(IncrementalGeneratorInitializationContext context)
   {
+    var assemblyNameProvider = context.CompilationProvider.Select(static (compilation, ct) => compilation.AssemblyName);
+
     var values = context.SyntaxProvider
       .CreateSyntaxProvider(OfMarkerAttributes, SelectTargetType)
       .Where(static symbol => symbol is not null)
-      .Collect();
+      .Collect()
+      .Combine(assemblyNameProvider);
 
     context.RegisterSourceOutput(values, Execute!);
   }
 
-  private void Execute(SourceProductionContext context, ImmutableArray<TargetInfo> infos)
+  private void Execute(SourceProductionContext context, (ImmutableArray<TargetInfo>, string?) item)
   {
-    context.AddSource("IBuilder", SourceGenerator.Instance.GenerateIBuilder());
-    context.AddSource("ListBuilder", SourceGenerator.Instance.GenerateListBuilder());
-    context.AddSource("MoqSettings", SourceGenerator.Instance.GenerateMoqSettings());
+    (ImmutableArray<TargetInfo> infos, string? assemblyName) = item;
+    string namespacePrefix = assemblyName is null ? string.Empty : $"{assemblyName}.";
+
+    context.AddSource("IBuilder", SourceGenerator.Instance.GenerateIBuilder(namespacePrefix));
+    context.AddSource("ListBuilder", SourceGenerator.Instance.GenerateListBuilder(namespacePrefix));
+    context.AddSource("MoqSettings", SourceGenerator.Instance.GenerateMoqSettings(namespacePrefix));
 
     foreach (TargetInfo info in infos)
     {
       string hint = info.Symbol.ToDisplayString();
-      string source = SourceGenerator.Instance.GenerateObjectBuilder(in infos, info);
+      string source = SourceGenerator.Instance.GenerateObjectBuilder(in infos, info, namespacePrefix);
       context.AddSource(hint, source);
     }
   }
