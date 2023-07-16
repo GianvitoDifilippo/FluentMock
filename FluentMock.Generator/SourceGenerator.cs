@@ -71,13 +71,17 @@ internal class SourceGenerator
             if (propertyExpression is not global::System.Linq.Expressions.MemberExpression memberExpr || memberExpr.Member is not global::System.Reflection.PropertyInfo property)
               return false;
       
-            string propertyName = property.Name;
+            return IsSetUp(obj, property.Name);
+          }
 
+          public static bool IsSetUp<T>(T obj, string propertyName)
+            where T : class
+          {
             if (obj is ISubstitute substitute)
             {
               return IsSetUp(substitute.ObjectMock, propertyName) || IsSetUp(substitute.SubstituteMock, propertyName);
             }
-
+      
             var mock = global::Moq.Mock.Get(obj);
             return IsSetUp(mock, propertyName);
           }
