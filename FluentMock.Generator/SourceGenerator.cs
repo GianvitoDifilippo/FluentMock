@@ -438,14 +438,15 @@ internal class SourceGenerator
   {
     INamedTypeSymbol propertyType = (INamedTypeSymbol)property.Type;
     string propertyName = property.Name;
-    string substituteTypeFullName = propertyType.TypeArguments[0].ToDisplayString(s_typeDisplayFormat);
+    ITypeSymbol argumentType = propertyType.TypeArguments[0];
+    string argumentTypeFullName = argumentType.ToDisplayString(s_typeDisplayFormat);
 
     sourceBuilder.Append("public ");
     sourceBuilder.Append(info.BuilderName);
     sourceBuilder.Append(" Set");
     sourceBuilder.Append(propertyName);
     sourceBuilder.Append('(');
-    sourceBuilder.Append(substituteTypeFullName);
+    sourceBuilder.Append(argumentTypeFullName);
     sourceBuilder.AppendLine("[] value)");
     sourceBuilder.AppendLine("{", 1);
     sourceBuilder.Append("_substituteMock.Setup(x => x.");
@@ -453,6 +454,23 @@ internal class SourceGenerator
     sourceBuilder.AppendLine(").Returns(value);");
     sourceBuilder.AppendLine("return this;", -1);
     sourceBuilder.AppendLine("}");
+
+    if (argumentType.Name is "Char" && argumentType.ContainingNamespace.Name is "System")
+    {
+      sourceBuilder.AppendLine();
+      sourceBuilder.Append("public ");
+      sourceBuilder.Append(info.BuilderName);
+      sourceBuilder.Append(" Set");
+      sourceBuilder.Append(propertyName);
+      sourceBuilder.Append('(');
+      sourceBuilder.AppendLine("string value)");
+      sourceBuilder.AppendLine("{", 1);
+      sourceBuilder.Append("_substituteMock.Setup(x => x.");
+      sourceBuilder.Append(propertyName);
+      sourceBuilder.AppendLine(").Returns(value.ToCharArray());");
+      sourceBuilder.AppendLine("return this;", -1);
+      sourceBuilder.AppendLine("}");
+    }
   }
 
   private static void GenerateStaticBuildMethods(ref SourceBuilder sourceBuilder, BuilderInfo info, string namespacePrefix, bool hasSpans)
