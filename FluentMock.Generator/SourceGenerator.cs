@@ -1,7 +1,6 @@
 ﻿using Microsoft.CodeAnalysis;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.Linq;
 
 namespace FluentMock.Generator;
 
@@ -45,12 +44,71 @@ internal class SourceGenerator
       """;
   }
 
+  public string GenerateISubstitute(string namespacePrefix)
+  {
+    return $$"""
+      namespace {{namespacePrefix}}FluentMock
+      {
+        public interface ISubstitute
+        {
+          global::Moq.Mock ObjectMock { get; }
+          global::Moq.Mock SubstituteMock { get; }
+        }
+      }
+      """;
+  }
+
+  public string GenerateMockHelper(string namespacePrefix)
+  {
+    return $$"""
+      namespace {{namespacePrefix}}FluentMock
+      {
+        public static class MockHelper
+        {
+          public static bool IsSetUp<T, TProperty>(T obj, global::System.Linq.Expressions.Expression<global::System.Func<T, TProperty>> propertyExpression)
+            where T : class
+          {
+            if (propertyExpression is not global::System.Linq.Expressions.MemberExpression memberExpr || memberExpr.Member is not global::System.Reflection.PropertyInfo property)
+              return false;
+      
+            string propertyName = property.Name;
+
+            if (obj is ISubstitute substitute)
+            {
+              return IsSetUp(substitute.ObjectMock, propertyName) || IsSetUp(substitute.SubstituteMock, propertyName);
+            }
+
+            var mock = global::Moq.Mock.Get(obj);
+            return IsSetUp(mock, propertyName);
+          }
+          
+          public static bool IsSetUp<T, TProperty>(global::Moq.Mock<T> mock, global::System.Linq.Expressions.Expression<global::System.Func<T, TProperty>> propertyExpression)
+            where T : class
+          {
+            if (propertyExpression is not global::System.Linq.Expressions.MemberExpression memberExpr || memberExpr.Member is not global::System.Reflection.PropertyInfo property)
+              return false;
+
+            return IsSetUp(mock, property.Name);
+          }
+          
+          public static bool IsSetUp(global::Moq.Mock mock, string propertyName)
+          {
+            return global::System.Linq.Enumerable.Any(mock.Setups, setup =>
+              setup is global::System.Linq.Expressions.MemberExpression memberExpr &&
+              memberExpr.Member is global::System.Reflection.PropertyInfo property &&
+              property.Name == propertyName);
+          }
+        }
+      }
+      """;
+  }
+
   public string GenerateListBuilder(string namespacePrefix)
   {
     return $$"""
       namespace {{namespacePrefix}}FluentMock
       {
-        internal abstract class __ListBuilderBase<T, TListBuilder>
+        public abstract class __ListBuilderBase<T, TListBuilder>
           where TListBuilder : __ListBuilderBase<T, TListBuilder>, new()
         {
           private readonly global::System.Collections.Generic.List<T> _list;
@@ -78,7 +136,7 @@ internal class SourceGenerator
           }
         }
 
-        internal abstract class __ListBuilderBase<T, TBuilder, TListBuilder> : __ListBuilderBase<T, TListBuilder>
+        public abstract class __ListBuilderBase<T, TBuilder, TListBuilder> : __ListBuilderBase<T, TListBuilder>
           where TBuilder : IBuilder<T>
           where TListBuilder : __ListBuilderBase<T, TBuilder, TListBuilder>, new()
         {
@@ -113,7 +171,7 @@ internal class SourceGenerator
           }
         }
 
-        internal sealed class ListBuilder<T> : __ListBuilderBase<T, ListBuilder<T>>
+        public sealed class ListBuilder<T> : __ListBuilderBase<T, ListBuilder<T>>
         {
           public ListBuilder()
           {
@@ -122,7 +180,7 @@ internal class SourceGenerator
           protected override ListBuilder<T> This => this;
         }
 
-        internal sealed class ListBuilder<T, TBuilder> : __ListBuilderBase<T, TBuilder, ListBuilder<T, TBuilder>>
+        public sealed class ListBuilder<T, TBuilder> : __ListBuilderBase<T, TBuilder, ListBuilder<T, TBuilder>>
           where TBuilder : IBuilder<T>
         {
           public ListBuilder()
@@ -151,7 +209,7 @@ internal class SourceGenerator
 
     // GenerateDelegates(ref sourceBuilder, allMembers);
 
-    sourceBuilder.Append("internal class ");
+    sourceBuilder.Append("public class ");
     sourceBuilder.Append(info.BuilderName);
     sourceBuilder.Append($" : global::{namespacePrefix}FluentMock.IBuilder<");
     sourceBuilder.Append(info.TargetFullName);
@@ -185,7 +243,7 @@ internal class SourceGenerator
 
     if (hasSpans)
     {
-      GenerateSubstitute(ref sourceBuilder, allProperties, spanProperties, info, targetInfo);
+      GenerateSubstitute(ref sourceBuilder, allProperties, spanProperties, info, targetInfo, namespacePrefix);
     }
 
     sourceBuilder.AppendLine("}", -1);
@@ -265,7 +323,7 @@ internal class SourceGenerator
 
     if (hasSpan)
     {
-      sourceBuilder.AppendLine("new __Substitute(_substituteMock.Object, _mock.Object);");
+      sourceBuilder.AppendLine("new __Substitute(_substituteMock, _mock);");
     }
     else
     {
@@ -507,10 +565,10 @@ internal class SourceGenerator
     }
   }
 
-  private static void GenerateSubstitute(ref SourceBuilder sourceBuilder, ImmutableArray<IPropertySymbol> allProperties, ImmutableArray<IPropertySymbol> spanProperties, BuilderInfo info, TargetInfo target)
+  private static void GenerateSubstitute(ref SourceBuilder sourceBuilder, ImmutableArray<IPropertySymbol> allProperties, ImmutableArray<IPropertySymbol> spanProperties, BuilderInfo info, TargetInfo target, string namespacePrefix)
   {
     sourceBuilder.AppendLine();
-    sourceBuilder.AppendLine("public interface __ISubstitute");
+    sourceBuilder.AppendLine($"public interface __ISubstitute");
     sourceBuilder.AppendLine("{", 1);
 
     for (int i = 0; i < spanProperties.Length; i++)
@@ -537,20 +595,23 @@ internal class SourceGenerator
 
     sourceBuilder.AppendLine();
     sourceBuilder.Append("private class __Substitute : ");
-    sourceBuilder.AppendLine(info.TargetFullName);
-    sourceBuilder.AppendLine("{", 1);
-    sourceBuilder.AppendLine("private readonly __ISubstitute _substitute;");
-    sourceBuilder.Append("private readonly ");
     sourceBuilder.Append(info.TargetFullName);
-    sourceBuilder.AppendLine(" _object;");
-    sourceBuilder.AppendLine();
-    sourceBuilder.Append("public __Substitute(__ISubstitute substitute, ");
-    sourceBuilder.Append(info.TargetFullName);
-    sourceBuilder.AppendLine(" @object)");
+    sourceBuilder.AppendLine($", global::{namespacePrefix}FluentMock.ISubstitute");
     sourceBuilder.AppendLine("{", 1);
-    sourceBuilder.AppendLine("_substitute = substitute;");
-    sourceBuilder.AppendLine("_object = @object;", -1);
+    sourceBuilder.AppendLine("private readonly global::Moq.Mock<__ISubstitute> _substituteMock;");
+    sourceBuilder.Append("private readonly global::Moq.Mock<");
+    sourceBuilder.Append(info.TargetFullName);
+    sourceBuilder.AppendLine("> _objectMock;");
+    sourceBuilder.Append("public __Substitute(global::Moq.Mock<__ISubstitute> substituteMock, global::Moq.Mock<");
+    sourceBuilder.Append(info.TargetFullName);
+    sourceBuilder.AppendLine("> objectMock)");
+    sourceBuilder.AppendLine("{", 1);
+    sourceBuilder.AppendLine("_substituteMock = substituteMock;");
+    sourceBuilder.AppendLine("_objectMock = objectMock;", -1);
     sourceBuilder.AppendLine("}");
+    sourceBuilder.AppendLine();
+    sourceBuilder.AppendLine("public global::Moq.Mock SubstituteMock => _substituteMock;");
+    sourceBuilder.AppendLine("public global::Moq.Mock ObjectMock => _objectMock;");
 
     foreach (IPropertySymbol property in allProperties)
     {
@@ -563,11 +624,11 @@ internal class SourceGenerator
 
       if (spanProperties.Contains(property))
       {
-        sourceBuilder.Append("_substitute.");
+        sourceBuilder.Append("_substituteMock.Object.");
       }
       else
       {
-        sourceBuilder.Append("_object.");
+        sourceBuilder.Append("_objectMock.Object.");
       }
 
       sourceBuilder.Append(property.Name);
@@ -601,12 +662,14 @@ internal class SourceGenerator
         sb.Append(parameter.Name);
       });
       sourceBuilder.Append(')');
-      sourceBuilder.Append(" => _object.");
+      sourceBuilder.Append(" => _objectMock.Object.");
       sourceBuilder.Append(method.Name);
       sourceBuilder.Append('(');
       sourceBuilder.AppendJoin(", ", method.Parameters, static (sb, parameter) => sb.Append(parameter.Name));
       sourceBuilder.AppendLine(");");
     }
+
+    sourceBuilder.AppendLine(-1);
 
     sourceBuilder.AppendLine("}", -1);
   }

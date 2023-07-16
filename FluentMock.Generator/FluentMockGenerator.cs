@@ -29,15 +29,17 @@ internal class FluentMockGenerator : IIncrementalGenerator
       .Collect()
       .Combine(assemblyNameProvider);
 
-    context.RegisterSourceOutput(values, Execute!);
+    context.RegisterSourceOutput(values, GenerateBuilders!);
   }
 
-  private void Execute(SourceProductionContext context, (ImmutableArray<TargetInfo>, string?) item)
+  private void GenerateBuilders(SourceProductionContext context, (ImmutableArray<TargetInfo>, string?) item)
   {
     (ImmutableArray<TargetInfo> infos, string? assemblyName) = item;
     string namespacePrefix = assemblyName is null ? string.Empty : $"{assemblyName}.";
 
     context.AddSource("IBuilder", _generator.GenerateIBuilder(namespacePrefix));
+    context.AddSource("ISubstitute", _generator.GenerateISubstitute(namespacePrefix));
+    context.AddSource("MockHelper", _generator.GenerateMockHelper(namespacePrefix));
     context.AddSource("ListBuilder", _generator.GenerateListBuilder(namespacePrefix));
     context.AddSource("MoqSettings", _generator.GenerateMoqSettings(namespacePrefix));
 
