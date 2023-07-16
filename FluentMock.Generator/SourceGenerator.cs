@@ -1,5 +1,4 @@
 ﻿using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
@@ -13,11 +12,9 @@ internal class SourceGenerator
     .WithGlobalNamespaceStyle(SymbolDisplayGlobalNamespaceStyle.Included)
     .WithMiscellaneousOptions(SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
 
-  public static readonly SourceGenerator Instance = new();
-
   private readonly Dictionary<ITypeSymbol, BuilderInfo> _infoCache;
 
-  private SourceGenerator()
+  public SourceGenerator()
   {
     _infoCache = new(SymbolEqualityComparer.Default);
   }
@@ -138,10 +135,12 @@ internal class SourceGenerator
       """;
   }
 
-  public string GenerateObjectBuilder(in ImmutableArray<TargetInfo> infos, TargetInfo targetInfo, string namespacePrefix)
+  public string GenerateObjectBuilder(ImmutableArray<TargetInfo> infos, TargetInfo targetInfo, string namespacePrefix)
   {
-    (INamedTypeSymbol type, IReadOnlyCollection<string> toIgnore) = targetInfo;
+    (INamedTypeSymbol type, HashSet<string> toIgnore) = targetInfo;
     BuilderInfo info = GetInfo(type);
+    ImmutableArray<IPropertySymbol> allProperties = type.GetAllProperties(toIgnore);
+    bool hasSpans = HasSpans(allProperties, out ImmutableArray<IPropertySymbol> spanProperties);
 
     SourceBuilder sourceBuilder = new(256); // TODO: Estimate capacity
 
@@ -150,7 +149,6 @@ internal class SourceGenerator
     sourceBuilder.AppendLine(".FluentMock");
     sourceBuilder.AppendLine("{", 1);
 
-    IEnumerable<ISymbol> allMembers = type.GetAllMembers();
     // GenerateDelegates(ref sourceBuilder, allMembers);
 
     sourceBuilder.Append("internal class ");
@@ -159,47 +157,39 @@ internal class SourceGenerator
     sourceBuilder.Append(info.TargetFullName);
     sourceBuilder.AppendLine(">");
     sourceBuilder.AppendLine("{", 1);
-    GenerateFields(ref sourceBuilder, info);
+    GenerateFields(ref sourceBuilder, info, hasSpans);
     sourceBuilder.AppendLine();
-    GenerateConstructors(ref sourceBuilder, info, namespacePrefix);
+    GenerateConstructors(ref sourceBuilder, info, namespacePrefix, hasSpans);
     sourceBuilder.AppendLine();
     GenerateMockProperty(ref sourceBuilder, info);
     sourceBuilder.AppendLine();
-    GenerateInstanceBuildMethod(ref sourceBuilder, info);
+    GenerateInstanceBuildMethod(ref sourceBuilder, info, hasSpans);
     sourceBuilder.AppendLine();
     GenerateSetupMethod(ref sourceBuilder, info);
     sourceBuilder.AppendLine();
 
-    foreach (ISymbol member in allMembers)
+    foreach (IPropertySymbol property in allProperties)
     {
-      if (member is IPropertySymbol property && !toIgnore.Contains(property.Name))
+      if (spanProperties.Contains(property))
       {
-        GeneratePropertySetters(ref sourceBuilder, in infos, property, info, namespacePrefix);
-        sourceBuilder.AppendLine();
+        GenerateSpanPropertySetter(ref sourceBuilder, property, info);
       }
-      // else if (member is IMethodSymbol method && method.MethodKind is MethodKind.Ordinary && method.RefKind is RefKind.None)
-      // {
-      //   bool hasRefStructParams = false;
-      //   foreach (IParameterSymbol parameter in method.Parameters)
-      //   {
-      //     if (parameter.Type.IsRefLikeType)
-      //     {
-      //       hasRefStructParams = true;
-      //       break;
-      //     }
-      //   }
-      // 
-      //   if (hasRefStructParams)
-      //     continue;
-      // 
-      //   GenerateMethodSetter(ref sourceBuilder, (IMethodSymbol)member, info);
-      //   sourceBuilder.AppendLine();
-      // }
+      else
+      {
+        GeneratePropertySetters(ref sourceBuilder, infos, property, info, namespacePrefix);
+      }
+      sourceBuilder.AppendLine();
     }
 
-    GenerateStaticBuildMethods(ref sourceBuilder, info, namespacePrefix);
+    GenerateStaticBuildMethods(ref sourceBuilder, info, namespacePrefix, hasSpans);
+
+    if (hasSpans)
+    {
+      GenerateSubstitute(ref sourceBuilder, allProperties, spanProperties, info, targetInfo);
+    }
 
     sourceBuilder.AppendLine("}", -1);
+
     sourceBuilder.AppendLine("}");
 
     return sourceBuilder.Source;
@@ -222,80 +212,31 @@ internal class SourceGenerator
     return info;
   }
 
-  private void GenerateDelegates(ref SourceBuilder sourceBuilder, IEnumerable<ISymbol> allMembers)
+  private static void GenerateFields(ref SourceBuilder sourceBuilder, BuilderInfo info, bool hasSpans)
   {
-    bool appendLineForDelegates = false;
+    sourceBuilder.AppendLine("private readonly global::Moq.MockBehavior _behavior;");
 
-    foreach (ISymbol member in allMembers)
+    if (hasSpans)
     {
-      if (member is not IMethodSymbol method || method.MethodKind is not MethodKind.Ordinary || method.RefKind is not RefKind.None)
-        continue;
-
-      bool hasRefStructParams = false;
-      foreach (IParameterSymbol parameter in method.Parameters)
-      {
-        if (parameter.Type.IsRefLikeType)
-        {
-          hasRefStructParams = true;
-          break;
-        }
-      }
-
-      if (hasRefStructParams)
-        continue;
-
-      GenerateDelegate(ref sourceBuilder, (IMethodSymbol)member);
-      appendLineForDelegates = true;
+      sourceBuilder.AppendLine("private readonly global::Moq.Mock<__ISubstitute> _substituteMock;");
     }
-    if (appendLineForDelegates)
-    {
-      sourceBuilder.AppendLine();
-    }
-  }
 
-  private static void GenerateDelegate(ref SourceBuilder sourceBuilder, IMethodSymbol method)
-  {
-    sourceBuilder.Append("internal delegate ");
-    sourceBuilder.Append(method.ReturnType.ToDisplayString(s_typeDisplayFormat));
-    sourceBuilder.Append(" _");
-    sourceBuilder.Append(method.Name);
-    sourceBuilder.Append("Delegate(");
-    sourceBuilder.AppendJoin(", ", method.Parameters, static (sb, parameter) =>
-    {
-      switch (parameter.RefKind)
-      {
-        case RefKind.Ref:
-          sb.Append("ref ");
-          break;
-        case RefKind.Out:
-          sb.Append("out ");
-          break;
-        case RefKind.In:
-          sb.Append("in ");
-          break;
-      }
-      sb.Append(parameter.Type.ToDisplayString(s_typeDisplayFormat));
-      sb.Append(' ');
-      sb.Append(parameter.Name);
-    });
-    sourceBuilder.AppendLine(");");
-  }
-
-  private static void GenerateFields(ref SourceBuilder sourceBuilder, BuilderInfo info)
-  {
     sourceBuilder.Append("private readonly global::Moq.Mock<");
     sourceBuilder.Append(info.TargetFullName);
     sourceBuilder.AppendLine("> _mock;");
-    sourceBuilder.AppendLine("private readonly global::Moq.MockBehavior _behavior;");
   }
 
-  private static void GenerateConstructors(ref SourceBuilder sourceBuilder, BuilderInfo info, string namespacePrefix)
+  private static void GenerateConstructors(ref SourceBuilder sourceBuilder, BuilderInfo info, string namespacePrefix, bool hasSpans)
   {
     sourceBuilder.Append("public ");
     sourceBuilder.Append(info.BuilderName);
     sourceBuilder.AppendLine("(global::Moq.MockBehavior behavior)");
     sourceBuilder.AppendLine("{", 1);
     sourceBuilder.AppendLine("_behavior = behavior;");
+    if (hasSpans)
+    {
+      sourceBuilder.AppendLine("_substituteMock = new global::Moq.Mock<__ISubstitute>(behavior);");
+    }
     sourceBuilder.Append("_mock = new global::Moq.Mock<");
     sourceBuilder.Append(info.TargetFullName);
     sourceBuilder.AppendLine(">(behavior);", -1);
@@ -316,11 +257,20 @@ internal class SourceGenerator
     sourceBuilder.Append("> Mock => _mock;");
   }
 
-  private static void GenerateInstanceBuildMethod(ref SourceBuilder sourceBuilder, BuilderInfo info)
+  private static void GenerateInstanceBuildMethod(ref SourceBuilder sourceBuilder, BuilderInfo info, bool hasSpan)
   {
     sourceBuilder.Append("public ");
     sourceBuilder.Append(info.TargetFullName);
-    sourceBuilder.AppendLine(" Build() => _mock.Object;");
+    sourceBuilder.Append(" Build() => ");
+
+    if (hasSpan)
+    {
+      sourceBuilder.AppendLine("new __Substitute(_substituteMock.Object, _mock.Object);");
+    }
+    else
+    {
+      sourceBuilder.AppendLine("_mock.Object;");
+    }
   }
 
   private static void GenerateSetupMethod(ref SourceBuilder sourceBuilder, BuilderInfo info)
@@ -336,7 +286,7 @@ internal class SourceGenerator
     sourceBuilder.AppendLine("}");
   }
 
-  private void GeneratePropertySetters(ref SourceBuilder sourceBuilder, in ImmutableArray<TargetInfo> infos, IPropertySymbol property, BuilderInfo info, string namespacePrefix)
+  private void GeneratePropertySetters(ref SourceBuilder sourceBuilder, ImmutableArray<TargetInfo> infos, IPropertySymbol property, BuilderInfo info, string namespacePrefix)
   {
     ITypeSymbol propertyType = property.Type;
     string propertyName = property.Name;
@@ -439,7 +389,7 @@ internal class SourceGenerator
 
     ITypeSymbol elementType = ((INamedTypeSymbol)propertyType).TypeArguments[0];
     string elementTypeFullName = elementType.ToDisplayString(s_typeDisplayFormat);
-    bool hasBuilderInfo = TryGetBuilderInfo(elementType, in infos, out BuilderInfo? elementBuilderInfo);
+    bool hasBuilderInfo = TryGetBuilderInfo(elementType, infos, out BuilderInfo? elementBuilderInfo);
 
     sourceBuilder.AppendLine();
     sourceBuilder.Append("public ");
@@ -484,60 +434,28 @@ internal class SourceGenerator
     sourceBuilder.AppendLine("}");
   }
 
-  private static void GenerateMethodSetter(ref SourceBuilder sourceBuilder, IMethodSymbol method, BuilderInfo info)
+  private void GenerateSpanPropertySetter(ref SourceBuilder sourceBuilder, IPropertySymbol property, BuilderInfo info)
   {
-    string methodName = method.Name;
+    INamedTypeSymbol propertyType = (INamedTypeSymbol)property.Type;
+    string propertyName = property.Name;
+    string substituteTypeFullName = propertyType.TypeArguments[0].ToDisplayString(s_typeDisplayFormat);
 
     sourceBuilder.Append("public ");
     sourceBuilder.Append(info.BuilderName);
     sourceBuilder.Append(" Set");
-    sourceBuilder.Append(methodName);
-    sourceBuilder.Append("(_");
-    sourceBuilder.Append(methodName);
-    sourceBuilder.Append("Delegate @delegate");
-    sourceBuilder.AppendLine(")");
-    sourceBuilder.AppendLine("{", 1);
-    sourceBuilder.Append("_mock.Setup(x => x.");
-    sourceBuilder.Append(methodName);
+    sourceBuilder.Append(propertyName);
     sourceBuilder.Append('(');
-    sourceBuilder.AppendJoin(", ", method.Parameters, static (sb, parameter) =>
-    {
-      bool isRef = false;
-      switch (parameter.RefKind)
-      {
-        case RefKind.Ref:
-          sb.Append("ref ");
-          isRef = true;
-          break;
-        case RefKind.Out:
-          sb.Append("out ");
-          isRef = true;
-          break;
-        case RefKind.In:
-          sb.Append("in ");
-          isRef = true;
-          break;
-      }
-
-      if (isRef)
-      {
-        sb.Append("global::Moq.It.Ref<");
-        sb.Append(parameter.Type.ToDisplayString(s_typeDisplayFormat));
-        sb.Append(">.IsAny");
-      }
-      else
-      {
-        sb.Append("global::Moq.It.IsAny<");
-        sb.Append(parameter.Type.ToDisplayString(s_typeDisplayFormat));
-        sb.Append(">()");
-      }
-    });
-    sourceBuilder.AppendLine(")).Returns(@delegate);");
+    sourceBuilder.Append(substituteTypeFullName);
+    sourceBuilder.AppendLine("[] value)");
+    sourceBuilder.AppendLine("{", 1);
+    sourceBuilder.Append("_substituteMock.Setup(x => x.");
+    sourceBuilder.Append(propertyName);
+    sourceBuilder.AppendLine(").Returns(value);");
     sourceBuilder.AppendLine("return this;", -1);
     sourceBuilder.AppendLine("}");
   }
 
-  private static void GenerateStaticBuildMethods(ref SourceBuilder sourceBuilder, BuilderInfo info, string namespacePrefix)
+  private static void GenerateStaticBuildMethods(ref SourceBuilder sourceBuilder, BuilderInfo info, string namespacePrefix, bool hasSpans)
   {
     sourceBuilder.Append("public static ");
     sourceBuilder.Append(info.TargetFullName);
@@ -560,10 +478,122 @@ internal class SourceGenerator
     sourceBuilder.AppendLine("> buildAction)");
     sourceBuilder.AppendLine("{", 1);
     sourceBuilder.AppendLine($"return Build(global::{namespacePrefix}FluentMock.MoqSettings.DefaultMockBehavior, buildAction);", -1);
+
+    if (hasSpans)
+    {
+      sourceBuilder.AppendLine("}");
+    }
+    else
+    {
+      sourceBuilder.AppendLine("}", -1);
+    }
+  }
+
+  private static void GenerateSubstitute(ref SourceBuilder sourceBuilder, ImmutableArray<IPropertySymbol> allProperties, ImmutableArray<IPropertySymbol> spanProperties, BuilderInfo info, TargetInfo target)
+  {
+    sourceBuilder.AppendLine();
+    sourceBuilder.AppendLine("public interface __ISubstitute");
+    sourceBuilder.AppendLine("{", 1);
+
+    for (int i = 0; i < spanProperties.Length; i++)
+    {
+      IPropertySymbol property = spanProperties[i];
+      INamedTypeSymbol propertyType = (INamedTypeSymbol)property.Type;
+      string propertyName = property.Name;
+      string substituteTypeFullName = propertyType.TypeArguments[0].ToDisplayString(s_typeDisplayFormat);
+
+      sourceBuilder.Append(substituteTypeFullName);
+      sourceBuilder.Append("[] ");
+      sourceBuilder.Append(propertyName);
+      
+      if (i == spanProperties.Length - 1)
+      {
+        sourceBuilder.AppendLine(" { get; }", -1);
+      }
+      else
+      {
+        sourceBuilder.AppendLine(" { get; }");
+      }
+    }
+    sourceBuilder.AppendLine("}");
+
+    sourceBuilder.AppendLine();
+    sourceBuilder.Append("private class __Substitute : ");
+    sourceBuilder.AppendLine(info.TargetFullName);
+    sourceBuilder.AppendLine("{", 1);
+    sourceBuilder.AppendLine("private readonly __ISubstitute _substitute;");
+    sourceBuilder.Append("private readonly ");
+    sourceBuilder.Append(info.TargetFullName);
+    sourceBuilder.AppendLine(" _object;");
+    sourceBuilder.AppendLine();
+    sourceBuilder.Append("public __Substitute(__ISubstitute substitute, ");
+    sourceBuilder.Append(info.TargetFullName);
+    sourceBuilder.AppendLine(" @object)");
+    sourceBuilder.AppendLine("{", 1);
+    sourceBuilder.AppendLine("_substitute = substitute;");
+    sourceBuilder.AppendLine("_object = @object;", -1);
+    sourceBuilder.AppendLine("}");
+
+    foreach (IPropertySymbol property in allProperties)
+    {
+      sourceBuilder.AppendLine();
+      sourceBuilder.Append("public ");
+      sourceBuilder.Append(property.Type.ToDisplayString(s_typeDisplayFormat));
+      sourceBuilder.Append(' ');
+      sourceBuilder.Append(property.Name);
+      sourceBuilder.Append(" => ");
+
+      if (spanProperties.Contains(property))
+      {
+        sourceBuilder.Append("_substitute.");
+      }
+      else
+      {
+        sourceBuilder.Append("_object.");
+      }
+
+      sourceBuilder.Append(property.Name);
+      sourceBuilder.AppendLine(";");
+    }
+
+    foreach (IMethodSymbol method in target.Symbol.GetAllMethods(target.ToIgnore))
+    {
+      sourceBuilder.AppendLine();
+      sourceBuilder.Append("public ");
+      sourceBuilder.Append(method.ReturnType.ToDisplayString(s_typeDisplayFormat));
+      sourceBuilder.Append(' ');
+      sourceBuilder.Append(method.Name);
+      sourceBuilder.Append('(');
+      sourceBuilder.AppendJoin(", ", method.Parameters, static (sb, parameter) =>
+      {
+        switch (parameter.RefKind)
+        {
+          case RefKind.Ref:
+            sb.Append("ref ");
+            break;
+          case RefKind.Out:
+            sb.Append("out ");
+            break;
+          case RefKind.In:
+            sb.Append("in ");
+            break;
+        }
+        sb.Append(parameter.Type.ToDisplayString(s_typeDisplayFormat));
+        sb.Append(' ');
+        sb.Append(parameter.Name);
+      });
+      sourceBuilder.Append(')');
+      sourceBuilder.Append(" => _object.");
+      sourceBuilder.Append(method.Name);
+      sourceBuilder.Append('(');
+      sourceBuilder.AppendJoin(", ", method.Parameters, static (sb, parameter) => sb.Append(parameter.Name));
+      sourceBuilder.AppendLine(");");
+    }
+
     sourceBuilder.AppendLine("}", -1);
   }
 
-  private bool TryGetBuilderInfo(ITypeSymbol type, in ImmutableArray<TargetInfo> infos, out BuilderInfo? builderInfo)
+  private bool TryGetBuilderInfo(ITypeSymbol type, ImmutableArray<TargetInfo> infos, out BuilderInfo? builderInfo)
   {
     if (type.Kind is not SymbolKind.NamedType)
     {
@@ -582,5 +612,21 @@ internal class SourceGenerator
 
     builderInfo = null;
     return false;
+  }
+
+  private static bool HasSpans(ImmutableArray<IPropertySymbol> allProperties, out ImmutableArray<IPropertySymbol> spanProperties)
+  {
+    var builder = ImmutableArray.CreateBuilder<IPropertySymbol>();
+    foreach (IPropertySymbol property in allProperties)
+    {
+      ITypeSymbol propertyType = property.Type;
+      if (propertyType.IsRefLikeType && propertyType.Name is "Span" or "ReadOnlySpan" && propertyType.ContainingNamespace.Name is "System")
+      {
+        builder.Add(property);
+      }
+    }
+
+    spanProperties = builder.ToImmutable();
+    return builder.Count != 0;
   }
 }

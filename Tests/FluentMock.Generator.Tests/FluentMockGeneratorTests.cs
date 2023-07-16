@@ -101,6 +101,56 @@ public class FluentMockGeneratorTests
   }
 
   [Fact]
+  public void ShouldGenerateForSpanProperty()
+  {
+    // Arrange
+    string source = """
+      using FluentMock;
+      using System;
+
+      namespace ClassLibrary
+      {
+        public interface IMyInterface
+        {
+          Span<int> Prop { get; }
+      
+          string Method(int arg1, char arg2);
+        }
+      }
+
+      namespace Test
+      {
+        [GenerateFluentMockFor(typeof(ClassLibrary.IMyInterface))]
+        class Config { }
+      }
+      """;
+
+
+    // Act
+    Compilation compilation = CompileWithGenerator(source);
+
+    // Assert
+    compilation.GetDiagnostics().Should().NotContain(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+
+    INamedTypeSymbol type = compilation.GetTypeByMetadataName("ClassLibrary.IMyInterface")!;
+    INamedTypeSymbol builderType = compilation.GetTypeByMetadataName("ClassLibrary.FluentMock.MyInterfaceBuilder")!;
+
+    builderType.ShouldMatchBuilderSpecification(type);
+
+    IEnumerable<IMethodSymbol> instanceMethods = builderType
+      .GetMembers()
+      .OfType<IMethodSymbol>()
+      .Where(method => method.MethodKind is MethodKind.Ordinary && !method.IsStatic && method.Name != "Build" && method.Name != "Setup");
+
+    instanceMethods.Should().HaveCount(1)
+      .And.ContainSingle(method =>
+        method.Name == "SetProp" &&
+        method.ReturnType.Equals(builderType, SymbolEqualityComparer.Default) &&
+        method.Parameters.Length == 1 &&
+        method.Parameters[0].Type.ToDisplayString(null) == "int[]");
+  }
+
+  [Fact]
   public void ShouldGenerateForListProperty()
   {
     // Arrange
