@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 
 namespace FluentMock.Generator;
 
+
 internal class SourceGenerator
 {
   private static readonly SymbolDisplayFormat s_namespaceDisplayFormat = SymbolDisplayFormat.FullyQualifiedFormat.WithGlobalNamespaceStyle(SymbolDisplayGlobalNamespaceStyle.OmittedAsContaining);
@@ -18,12 +19,19 @@ internal class SourceGenerator
     _infoCache = new(SymbolEqualityComparer.Default);
   }
 
+  public string GenerateAssemblyInfo()
+  {
+    return """
+      [assembly: global::System.Runtime.CompilerServices.InternalsVisibleTo("DynamicProxyGenAssembly2")]
+      """;
+  }
+
   public string GenerateMoqSettings(string namespacePrefix)
   {
     return $$"""
       namespace {{namespacePrefix}}FluentMock
       {
-        public static class MoqSettings
+        internal static class MoqSettings
         {
           public static global::Moq.MockBehavior DefaultMockBehavior = global::Moq.MockBehavior.Strict;
         }
@@ -36,7 +44,7 @@ internal class SourceGenerator
     return $$"""
       namespace {{namespacePrefix}}FluentMock
       {
-        public interface IBuilder<out T>
+        internal interface IBuilder<out T>
         {
           T Build();
         }
@@ -49,7 +57,7 @@ internal class SourceGenerator
     return $$"""
       namespace {{namespacePrefix}}FluentMock
       {
-        public interface ISubstitute
+        internal interface ISubstitute
         {
           global::Moq.Mock ObjectMock { get; }
           global::Moq.Mock SubstituteMock { get; }
@@ -63,7 +71,7 @@ internal class SourceGenerator
     return $$"""
       namespace {{namespacePrefix}}FluentMock
       {
-        public static class MockHelper
+        internal static class MockHelper
         {
           public static bool IsSetUp<T, TProperty>(T obj, global::System.Linq.Expressions.Expression<global::System.Func<T, TProperty>> propertyExpression)
             where T : class
@@ -112,7 +120,7 @@ internal class SourceGenerator
     return $$"""
       namespace {{namespacePrefix}}FluentMock
       {
-        public abstract class __ListBuilderBase<T, TListBuilder>
+        internal abstract class __ListBuilderBase<T, TListBuilder>
           where TListBuilder : __ListBuilderBase<T, TListBuilder>, new()
         {
           private readonly global::System.Collections.Generic.List<T> _list;
@@ -140,7 +148,7 @@ internal class SourceGenerator
           }
         }
 
-        public abstract class __ListBuilderBase<T, TBuilder, TListBuilder> : __ListBuilderBase<T, TListBuilder>
+        internal abstract class __ListBuilderBase<T, TBuilder, TListBuilder> : __ListBuilderBase<T, TListBuilder>
           where TBuilder : IBuilder<T>
           where TListBuilder : __ListBuilderBase<T, TBuilder, TListBuilder>, new()
         {
@@ -175,7 +183,7 @@ internal class SourceGenerator
           }
         }
 
-        public sealed class ListBuilder<T> : __ListBuilderBase<T, ListBuilder<T>>
+        internal sealed class ListBuilder<T> : __ListBuilderBase<T, ListBuilder<T>>
         {
           public ListBuilder()
           {
@@ -184,7 +192,7 @@ internal class SourceGenerator
           protected override ListBuilder<T> This => this;
         }
 
-        public sealed class ListBuilder<T, TBuilder> : __ListBuilderBase<T, TBuilder, ListBuilder<T, TBuilder>>
+        internal sealed class ListBuilder<T, TBuilder> : __ListBuilderBase<T, TBuilder, ListBuilder<T, TBuilder>>
           where TBuilder : IBuilder<T>
         {
           public ListBuilder()
@@ -213,7 +221,7 @@ internal class SourceGenerator
 
     // GenerateDelegates(ref sourceBuilder, allMembers);
 
-    sourceBuilder.Append("public class ");
+    sourceBuilder.Append("internal class ");
     sourceBuilder.Append(info.BuilderName);
     sourceBuilder.Append($" : global::{namespacePrefix}FluentMock.IBuilder<");
     sourceBuilder.Append(info.TargetFullName);

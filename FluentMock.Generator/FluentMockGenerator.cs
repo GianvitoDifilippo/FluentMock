@@ -37,6 +37,7 @@ internal class FluentMockGenerator : IIncrementalGenerator
     (ImmutableArray<TargetInfo> infos, string? assemblyName) = item;
     string namespacePrefix = assemblyName is null ? string.Empty : $"{assemblyName}.";
 
+    context.AddSource("AssemblyInfo", _generator.GenerateAssemblyInfo());
     context.AddSource("IBuilder", _generator.GenerateIBuilder(namespacePrefix));
     context.AddSource("ISubstitute", _generator.GenerateISubstitute(namespacePrefix));
     context.AddSource("MockHelper", _generator.GenerateMockHelper(namespacePrefix));
