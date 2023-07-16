@@ -76,7 +76,7 @@ internal class SourceGenerator
           public static bool IsSetUp<T, TProperty>(T obj, global::System.Linq.Expressions.Expression<global::System.Func<T, TProperty>> propertyExpression)
             where T : class
           {
-            if (propertyExpression is not global::System.Linq.Expressions.MemberExpression memberExpr || memberExpr.Member is not global::System.Reflection.PropertyInfo property)
+            if (propertyExpression.Body is not global::System.Linq.Expressions.MemberExpression memberExpr || memberExpr.Member is not global::System.Reflection.PropertyInfo property)
               return false;
       
             return IsSetUp(obj, property.Name);
@@ -97,7 +97,7 @@ internal class SourceGenerator
           public static bool IsSetUp<T, TProperty>(global::Moq.Mock<T> mock, global::System.Linq.Expressions.Expression<global::System.Func<T, TProperty>> propertyExpression)
             where T : class
           {
-            if (propertyExpression is not global::System.Linq.Expressions.MemberExpression memberExpr || memberExpr.Member is not global::System.Reflection.PropertyInfo property)
+            if (propertyExpression.Body is not global::System.Linq.Expressions.MemberExpression memberExpr || memberExpr.Member is not global::System.Reflection.PropertyInfo property)
               return false;
 
             return IsSetUp(mock, property.Name);
@@ -106,7 +106,7 @@ internal class SourceGenerator
           public static bool IsSetUp(global::Moq.Mock mock, string propertyName)
           {
             return global::System.Linq.Enumerable.Any(mock.Setups, setup =>
-              setup is global::System.Linq.Expressions.MemberExpression memberExpr &&
+              setup.Expression.Body is global::System.Linq.Expressions.MemberExpression memberExpr &&
               memberExpr.Member is global::System.Reflection.PropertyInfo property &&
               property.Name == propertyName);
           }
