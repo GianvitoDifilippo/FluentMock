@@ -91,7 +91,7 @@ internal class SourceGenerator
             }
       
             var mock = global::Moq.Mock.Get(obj);
-            return IsSetUp(mock, propertyName);
+            return IsSetUp(mock as global::Moq.Mock, propertyName);
           }
           
           public static bool IsSetUp<T, TProperty>(global::Moq.Mock<T> mock, global::System.Linq.Expressions.Expression<global::System.Func<T, TProperty>> propertyExpression)
@@ -100,7 +100,7 @@ internal class SourceGenerator
             if (propertyExpression.Body is not global::System.Linq.Expressions.MemberExpression memberExpr || memberExpr.Member is not global::System.Reflection.PropertyInfo property)
               return false;
 
-            return IsSetUp(mock, property.Name);
+            return IsSetUp(mock as global::Moq.Mock, property.Name);
           }
           
           public static bool IsSetUp(global::Moq.Mock mock, string propertyName)
